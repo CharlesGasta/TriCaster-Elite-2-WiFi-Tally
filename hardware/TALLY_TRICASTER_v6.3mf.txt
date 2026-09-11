@@ -1,0 +1,3 @@
+Binary 3MF enclosure file: TALLY TRICASTER v6.3mf
+
+The actual 3MF file is included with the project assets and should be uploaded to this folder as `TALLY_TRICASTER_v6.3mf`.
