@@ -1,5 +1,7 @@
 # TriCaster Elite 2 WiFi Tally
 
+![TriCaster Elite 2 WiFi Tally](assets/tricaster-elite2-wifi-tally-hero.webp)
+
 Open-source Wi-Fi tally system for the **NewTek / Vizrt TriCaster Elite 2**, based on inexpensive **ESP8266 NodeMCU** modules.
 
 Each tally unit communicates **directly with the TriCaster Elite 2 over the local network**.  
