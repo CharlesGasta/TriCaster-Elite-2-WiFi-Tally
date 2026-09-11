@@ -46,12 +46,13 @@ Le Manager n'est pas indispensable au fonctionnement du tally : les ESP communiq
 
 Pour chaque tally :
 
-- 1 × **ESP8266 NodeMCU**
-- 1 × petit module / ruban **RGB à anode commune**
-- configuration testée : **3 LED RGB**
-- 1 × alimentation USB 5 V
+- 1 × **ESP8266 NodeMCU avec USB-C** — modèle utilisé : https://fr.aliexpress.com/item/1005006889833004.html
+- 1 × ruban **RGB à anode commune** — modèle utilisé : https://fr.aliexpress.com/item/1005004188897288.html
+- **2 LED RGB seulement** sont utilisées dans le boîtier fourni
+- 1 × câble **USB-C vers USB-C** pour l'alimentation depuis le port USB-C d'une Sony FX6, ou une alimentation USB-C 5 V classique
 - fils, soudure et connecteurs
-- boîtier, par exemple imprimé en 3D
+- 1 × boîtier imprimé en **PLA** à partir du fichier 3D fourni
+- 1 × **insert fileté 1/4"** pour fixation sur accessoires caméra — exemple : https://fr.aliexpress.com/item/1005006071559268.html
 - accès au même réseau local que le TriCaster Elite 2
 
 Pour l'installation complète :
@@ -61,6 +62,35 @@ Pour l'installation complète :
 - facultatif : un PC Windows ou le TriCaster lui-même pour exécuter le Manager
 
 > Pour un ruban plus long ou une puissance plus élevée, utilisez des MOSFET/transistors ou un driver LED adapté. Ne faites pas passer une charge importante directement par les sorties de l'ESP8266.
+
+## Boîtier 3D et fixation caméra
+
+Le dépôt inclut le fichier 3D du boîtier :
+
+```text
+hardware/TALLY_TRICASTER_v6.3mf
+```
+
+Le boîtier est conçu pour être imprimé en **PLA**.
+
+Il prévoit un logement pour un **insert fileté 1/4"**, permettant de fixer directement le tally sur les accessoires de rig caméra courants :
+
+- bras articulé / magic arm
+- mini rotule
+- adaptateur ou support de griffe flash / cold shoe
+- autres accessoires de bijout caméra utilisant une fixation 1/4"
+
+Exemple d'insert utilisé :
+
+https://fr.aliexpress.com/item/1005006071559268.html
+
+Le boîtier a été conçu autour de **2 LED RGB** seulement.
+
+### Alimentation sur caméra
+
+Sur une **Sony FX6**, le tally peut être alimenté directement depuis le port USB-C de la caméra avec un câble **USB-C vers USB-C**.
+
+Si aucun port USB-C caméra n'est disponible, une simple alimentation **5 V USB-C** suffit.
 
 ## Câblage
 
@@ -89,8 +119,14 @@ puis trois flashs blancs rapides.
 
 1. Installer **Arduino IDE**.
 2. Installer **esp8266 by ESP8266 Community**.
-3. Sélectionner `NodeMCU 1.0 (ESP-12E Module)`.
-4. Ouvrir `TriCaster_Elite2_Tally_ESP8266.ino`.
+3. Sélectionner :
+   ```text
+   NodeMCU 1.0 (ESP-12E Module)
+   ```
+4. Ouvrir :
+   ```text
+   TriCaster_Elite2_Tally_ESP8266.ino
+   ```
 5. Renseigner le Wi-Fi :
 
 ```cpp
@@ -106,7 +142,13 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 7. Compiler puis téléverser.
 
-Moniteur série : `115200 baud`.
+Moniteur série :
+
+```text
+115200 baud
+```
+
+---
 
 ## Choisir l'IP du TriCaster Elite 2
 
@@ -127,7 +169,13 @@ config.tricaster[2] = 1;
 config.tricaster[3] = 50;
 ```
 
-Si votre TriCaster est par exemple en `10.20.30.40`, utilisez :
+Si votre TriCaster est par exemple en :
+
+```text
+10.20.30.40
+```
+
+utilisez :
 
 ```cpp
 config.tricaster[0] = 10;
@@ -136,11 +184,22 @@ config.tricaster[2] = 30;
 config.tricaster[3] = 40;
 ```
 
-Adaptez également `gateway`, `subnet`, `dns` et `broadcastIP` à votre réseau.
+Adaptez également :
+
+```cpp
+IPAddress gateway(...);
+IPAddress subnet(...);
+IPAddress dns(...);
+IPAddress broadcastIP(...);
+```
+
+à votre réseau.
+
+---
 
 ## Choisir les IP des tally
 
-Par défaut :
+Par défaut, le firmware utilise :
 
 | Tally | IP |
 |---|---|
@@ -162,9 +221,23 @@ config.ip[2] = 1;
 config.ip[3] = 80 + constrain(DEFAULT_TALLY_NUMBER, 1, 8);
 ```
 
-Ainsi `#define DEFAULT_TALLY_NUMBER 3` donne `192.168.1.83`.
+Ainsi :
 
-**Important :** choisissez des IP hors de la plage DHCP de votre routeur, ou créez des réservations DHCP.
+```cpp
+#define DEFAULT_TALLY_NUMBER 3
+```
+
+donne automatiquement :
+
+```text
+192.168.1.83
+```
+
+Pour utiliser un autre sous-réseau, changez les trois premiers octets.
+
+**Important :** choisissez des IP hors de la plage DHCP de votre routeur, ou créez des réservations DHCP, afin d'éviter les conflits d'adresse.
+
+---
 
 ## Affectation caméra / entrée
 
@@ -174,21 +247,38 @@ Par défaut :
 config.camera = constrain(DEFAULT_TALLY_NUMBER, 1, 8);
 ```
 
-Donc `TALLY-01 → input1`, `TALLY-02 → input2`, etc. L'affectation peut ensuite être modifiée depuis le Manager sans reflasher l'ESP.
+Donc :
+
+```text
+TALLY-01 → input1
+TALLY-02 → input2
+TALLY-03 → input3
+...
+```
+
+L'affectation peut ensuite être modifiée depuis le Manager sans reflasher l'ESP.
+
+---
 
 ## Tally Manager
 
-Fichier : `TriCaster_Elite2_Tally_Manager.py`
+Fichier :
+
+```text
+TriCaster_Elite2_Tally_Manager.py
+```
 
 Le Manager fournit :
 
 - détection automatique des tally
 - état connecté / hors ligne
-- adresse IP et RSSI Wi-Fi
+- adresse IP
+- RSSI Wi-Fi
 - affectation caméra
-- réglage couleur PROGRAM / PREVIEW
+- réglage couleur PROGRAM
+- réglage couleur PREVIEW
 - luminosité individuelle
-- Identify
+- fonction Identify
 - reboot distant
 - modification du nom et de l'adresse IP
 - interface mobile
@@ -201,15 +291,45 @@ Ports utilisés :
 | Discovery / heartbeat | UDP `4210` |
 | API HTTP ESP8266 | TCP `80` |
 
-Interface locale : `http://127.0.0.1:8099`
+Interface locale :
 
-Depuis un téléphone : `http://IP_DU_PC_MANAGER:8099/mobile`
+```text
+http://127.0.0.1:8099
+```
+
+Depuis un téléphone sur le même réseau :
+
+```text
+http://IP_DU_PC_MANAGER:8099/mobile
+```
 
 ### IP du TriCaster dans le Manager
 
-La version publique utilise `192.168.1.50`. Si votre TriCaster utilise une autre adresse, recherchez `192.168.1.50` dans `TriCaster_Elite2_Tally_Manager.py` et remplacez toutes les occurrences avant de compiler l'EXE.
+La version publique utilise :
+
+```text
+192.168.1.50
+```
+
+Si votre TriCaster utilise une autre adresse, recherchez :
+
+```text
+192.168.1.50
+```
+
+dans :
+
+```text
+TriCaster_Elite2_Tally_Manager.py
+```
+
+et remplacez toutes les occurrences par l'adresse de votre TriCaster avant de compiler l'EXE.
+
+---
 
 ## Compiler le Manager en EXE
+
+Installer PyInstaller :
 
 ```powershell
 py -m pip install pyinstaller
@@ -221,17 +341,23 @@ Version avec console :
 py -m PyInstaller --noconfirm --clean --onefile --console --name TriCaster_Elite2_Tally_Manager TriCaster_Elite2_Tally_Manager.py
 ```
 
-Version silencieuse :
+Version silencieuse pour fonctionnement en arrière-plan :
 
 ```powershell
 py -m PyInstaller --noconfirm --clean --onefile --windowed --name TriCaster_Elite2_Tally_Manager TriCaster_Elite2_Tally_Manager.py
 ```
 
-L'exécutable sera dans `dist\TriCaster_Elite2_Tally_Manager.exe`.
+L'exécutable sera dans :
+
+```text
+dist\TriCaster_Elite2_Tally_Manager.exe
+```
+
+---
 
 ## Démarrage automatique sur le TriCaster
 
-Avec Windows Task Scheduler :
+Avec le **Task Scheduler** Windows :
 
 ```text
 Trigger                 : At log on
@@ -240,6 +366,8 @@ Run with highest privileges
 Action                  : TriCaster_Elite2_Tally_Manager.exe
 If already running      : Do not start a new instance
 ```
+
+Cela fonctionne particulièrement bien sur un TriCaster configuré avec ouverture automatique de session Windows.
 
 ---
 
@@ -282,12 +410,13 @@ The optional Manager is not part of the critical tally path. Each ESP communicat
 
 For each tally:
 
-- 1 × **ESP8266 NodeMCU**
-- 1 × small **common-anode RGB LED module/strip**
-- tested configuration: **3 RGB LEDs**
-- 1 × 5 V USB power supply
+- 1 × **ESP8266 NodeMCU with USB-C** — board used: https://fr.aliexpress.com/item/1005006889833004.html
+- 1 × **common-anode RGB LED strip** — strip used: https://fr.aliexpress.com/item/1005004188897288.html
+- the supplied enclosure uses **2 RGB LEDs only**
+- 1 × **USB-C to USB-C cable** for power from a Sony FX6 USB-C port, or a standard 5 V USB-C power supply
 - wiring / solder / connectors
-- optional 3D-printed enclosure
+- 1 × **PLA** 3D-printed enclosure using the supplied model
+- 1 × **1/4-inch threaded insert** for camera-rig mounting — example: https://fr.aliexpress.com/item/1005006071559268.html
 - access to the same network as the TriCaster Elite 2
 
 Overall system:
@@ -295,6 +424,35 @@ Overall system:
 - 1 × **TriCaster Elite 2**
 - LAN with 2.4 GHz Wi-Fi
 - optional Windows computer, or the TriCaster itself, for the Manager
+
+## 3D-printed enclosure and camera mounting
+
+The repository includes the enclosure model:
+
+```text
+hardware/TALLY_TRICASTER_v6.3mf
+```
+
+The enclosure is designed to be printed in **PLA**.
+
+It includes a seat for a **1/4-inch threaded insert**, allowing the tally to be mounted to common camera-rig accessories such as:
+
+- magic arms / articulated arms
+- mini ball heads
+- cold-shoe / flash-shoe adapters
+- other camera accessories using a 1/4-inch mounting thread
+
+Example threaded insert:
+
+https://fr.aliexpress.com/item/1005006071559268.html
+
+The enclosure is designed around **2 RGB LEDs only**.
+
+### Camera power
+
+On a **Sony FX6**, the tally can be powered directly from the camera's USB-C port using a **USB-C to USB-C cable**.
+
+If camera USB-C power is not available, any standard **5 V USB-C power supply** is sufficient.
 
 ## Wiring
 
@@ -311,13 +469,34 @@ The firmware uses inverted PWM for a common-anode RGB strip.
 
 1. Install Arduino IDE.
 2. Install **esp8266 by ESP8266 Community**.
-3. Select `NodeMCU 1.0 (ESP-12E Module)`.
-4. Open `TriCaster_Elite2_Tally_ESP8266.ino`.
-5. Enter your Wi-Fi details.
-6. Select the tally number with `#define DEFAULT_TALLY_NUMBER 1`.
+3. Select:
+   ```text
+   NodeMCU 1.0 (ESP-12E Module)
+   ```
+4. Open:
+   ```text
+   TriCaster_Elite2_Tally_ESP8266.ino
+   ```
+5. Enter your Wi-Fi details:
+
+```cpp
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+```
+
+6. Select the tally number:
+
+```cpp
+#define DEFAULT_TALLY_NUMBER 1
+```
+
 7. Compile and upload.
 
-Serial monitor: `115200 baud`.
+Serial monitor:
+
+```text
+115200 baud
+```
 
 ## Choosing the TriCaster Elite 2 IP
 
@@ -329,7 +508,16 @@ Gateway           : 192.168.1.1
 Subnet            : 255.255.255.0
 ```
 
-Replace the firmware `config.tricaster[]` values with the actual TriCaster address and update the gateway, DNS and broadcast address to match your network.
+Firmware:
+
+```cpp
+config.tricaster[0] = 192;
+config.tricaster[1] = 168;
+config.tricaster[2] = 1;
+config.tricaster[3] = 50;
+```
+
+Replace these values with the actual TriCaster address and update the gateway, DNS and broadcast address to match your network.
 
 ## Choosing tally IP addresses
 
@@ -346,17 +534,56 @@ Default public example:
 | TALLY-07 | `192.168.1.87` |
 | TALLY-08 | `192.168.1.88` |
 
+Firmware logic:
+
+```cpp
+config.ip[0] = 192;
+config.ip[1] = 168;
+config.ip[2] = 1;
+config.ip[3] = 80 + constrain(DEFAULT_TALLY_NUMBER, 1, 8);
+```
+
 Keep these static addresses outside your DHCP pool or reserve them in your router.
 
 ## Camera/input assignment
 
-By default `TALLY-01 → input1`, `TALLY-02 → input2`, etc. Assignments can later be changed from the Manager without reflashing the tally.
+By default:
+
+```cpp
+config.camera = constrain(DEFAULT_TALLY_NUMBER, 1, 8);
+```
+
+Therefore:
+
+```text
+TALLY-01 → input1
+TALLY-02 → input2
+TALLY-03 → input3
+...
+```
+
+Assignments can later be changed from the Manager without reflashing the tally.
 
 ## Manager
 
-File: `TriCaster_Elite2_Tally_Manager.py`
+File:
 
-Features include automatic discovery, online/offline status, IP/RSSI, camera assignment, PROGRAM/PREVIEW colors, brightness, Identify, reboot, device name/IP configuration and a mobile interface.
+```text
+TriCaster_Elite2_Tally_Manager.py
+```
+
+Features:
+
+- automatic tally discovery
+- online/offline status
+- IP and RSSI
+- camera/input assignment
+- PROGRAM and PREVIEW colors
+- per-device brightness
+- Identify
+- remote reboot
+- device name and IP configuration
+- mobile interface
 
 Ports:
 
@@ -366,16 +593,35 @@ Ports:
 | Discovery / heartbeat | UDP `4210` |
 | ESP8266 HTTP API | TCP `80` |
 
-Local UI: `http://127.0.0.1:8099`
+Local UI:
 
-Mobile/LAN UI: `http://MANAGER_PC_IP:8099/mobile`
+```text
+http://127.0.0.1:8099
+```
 
-The public Manager uses `192.168.1.50` as its example TriCaster IP. Replace all occurrences with your own TriCaster IP before building the EXE.
+Mobile/LAN UI:
+
+```text
+http://MANAGER_PC_IP:8099/mobile
+```
+
+The public Manager uses `192.168.1.50` as its example TriCaster IP. Replace all occurrences of this address with your own TriCaster IP before building the EXE.
 
 ## Building the Windows Manager
 
 ```powershell
 py -m pip install pyinstaller
+```
+
+Console build:
+
+```powershell
+py -m PyInstaller --noconfirm --clean --onefile --console --name TriCaster_Elite2_Tally_Manager TriCaster_Elite2_Tally_Manager.py
+```
+
+Background build:
+
+```powershell
 py -m PyInstaller --noconfirm --clean --onefile --windowed --name TriCaster_Elite2_Tally_Manager TriCaster_Elite2_Tally_Manager.py
 ```
 
