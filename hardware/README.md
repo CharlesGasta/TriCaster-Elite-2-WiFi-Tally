@@ -2,11 +2,9 @@
 
 The enclosure is designed for the TriCaster Elite 2 WiFi Tally and should be printed in **PLA**.
 
-Recommended file name:
+The 3D model and print information are available here:
 
-```text
-TALLY_TRICASTER_v6.3mf
-```
+https://www.thingiverse.com/thing:7408102
 
 The enclosure is designed around **2 RGB LEDs** and includes a seat for a **1/4-inch threaded insert** so it can be mounted to common camera-rig accessories such as magic arms, mini ball heads and cold-shoe / flash-shoe adapters.
 
