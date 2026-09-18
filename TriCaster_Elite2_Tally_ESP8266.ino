@@ -339,19 +339,34 @@ String stateName() {
 String statusJSON() {
   String json = "{";
   json += "\"name\":\"" + jsonEscape(String(config.name)) + "\",";
+  json += "\"firmware\":\"" + String(FIRMWARE_VERSION) + "\",";
   json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"dhcp\":" + String(config.dhcp ? "true" : "false") + ",";
+  json += "\"gateway\":\"" + WiFi.gatewayIP().toString() + "\",";
+  json += "\"subnet\":\"" + WiFi.subnetMask().toString() + "\",";
+  json += "\"dns\":\"" + WiFi.dnsIP().toString() + "\",";
+  json += "\"ssid\":\"" + jsonEscape(String(config.ssid)) + "\",";
   json += "\"tricaster\":\"" + tricasterIP().toString() + "\",";
   json += "\"camera\":" + String(config.camera) + ",";
   json += "\"state\":\"" + stateName() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"bssid\":\"" + WiFi.BSSIDstr() + "\",";
   json += "\"channel\":" + String(WiFi.channel()) + ",";
+
   String wifiState = "connected";
   if (roamScanRunning || roamInProgress) wifiState = "roaming";
   else if (wifiRecoveryState == WIFI_SEARCHING) wifiState = "searching";
   else if (wifiRecoveryState == WIFI_CONNECTING) wifiState = "connecting";
+
   json += "\"wifi_state\":\"" + wifiState + "\",";
   json += "\"brightness\":" + String(config.brightness) + ",";
+  json += "\"uptime_ms\":" + String(millis()) + ",";
+  json += "\"tricaster_latency_ms\":" + String(lastTriCasterLatency) + ",";
+  json += "\"last_tally_age_ms\":" + String(millis() - lastGoodTally) + ",";
+  json += "\"roam_count\":" + String(roamCount) + ",";
+  json += "\"wifi_loss_count\":" + String(wifiLossCount) + ",";
+  json += "\"tricaster_loss_count\":" + String(tricasterLossCount) + ",";
+  json += "\"last_roam_age_ms\":" + String(lastRoamCompletedAt == 0 ? 0 : millis() - lastRoamCompletedAt) + ",";
   json += "\"pgm\":[" + String(config.pgmR) + "," + String(config.pgmG) + "," + String(config.pgmB) + "],";
   json += "\"preview\":[" + String(config.prevR) + "," + String(config.prevG) + "," + String(config.prevB) + "]";
   json += "}";
@@ -412,7 +427,10 @@ bool readTriCaster() {
 
   if (!http.begin(client, url)) return false;
 
+  unsigned long requestStart = millis();
   int response = http.GET();
+  lastTriCasterLatency = millis() - requestStart;
+
   if (response != HTTP_CODE_OK) {
     http.end();
     return false;
@@ -668,6 +686,7 @@ void handleRoaming(unsigned long now) {
 void startWiFiRecovery(unsigned long now) {
   if (roamInProgress) return;
 
+  wifiLossCount++;
   roamScanRunning = false;
   WiFi.scanDelete();
 
@@ -885,6 +904,8 @@ void loop() {
   if (roamInProgress) {
     if (WiFi.status() == WL_CONNECTED) {
       roamInProgress = false;
+      roamCount++;
+      lastRoamCompletedAt = now;
       lastGoodTally = now;
 
       Serial.println("[WIFI] Roaming termine -> " + WiFi.BSSIDstr() +
@@ -954,6 +975,7 @@ void loop() {
       millis() - lastGoodTally > TALLY_TIMEOUT &&
       currentState != STATE_ERROR) {
     currentState = STATE_ERROR;
+    tricasterLossCount++;
     Serial.println("[TALLY] Wi-Fi OK mais perte des donnees TriCaster -> jaune");
     updateLED();
   }
