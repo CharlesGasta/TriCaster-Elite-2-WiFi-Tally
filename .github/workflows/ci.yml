@@ -56,6 +56,13 @@ jobs:
           report = m.preflight_report()
           assert report["verdict"] == "NO-GO", report
           assert any(x["title"] == "Doublon IP" for x in report["checks"])
+
+          # Regression test: card handlers must use data-tally rather than injecting
+          # JSON-quoted names inside HTML attributes, which breaks checkbox/actions.
+          assert "quotedName" not in m.PAGE
+          assert 'onchange="otaToggle(this.dataset.tally,this.checked)"' in m.PAGE
+          assert 'onclick="uploadFirmware(\\\'single\\\',this.dataset.tally)"' in m.PAGE
+
           print("Manager V4.1 production smoke tests OK")
           PY
 
