@@ -42,7 +42,8 @@ event_log_lock = threading.Lock()
 manager_config = {
     "api_token": "CHANGE_ME",
     "ap_aliases": {},
-    "production_mode": False
+    "production_mode": False,
+    "expected_tally_count": 0
 }
 
 
@@ -59,6 +60,10 @@ def load_manager_config():
         if not manager_config.get("api_token"):
             manager_config["api_token"] = "CHANGE_ME"
         manager_config["production_mode"] = bool(manager_config.get("production_mode", False))
+        try:
+            manager_config["expected_tally_count"] = max(0, int(manager_config.get("expected_tally_count", 0)))
+        except (TypeError, ValueError):
+            manager_config["expected_tally_count"] = 0
         if not existed:
             save_manager_config()
     except Exception as error:
@@ -154,6 +159,16 @@ def preflight_report():
     else:
         online = {name: d for name, d in snapshot.items() if device_online(d, now)}
         offline = sorted(set(snapshot) - set(online))
+
+        with config_lock:
+            expected_count = int(manager_config.get("expected_tally_count", 0) or 0)
+        if expected_count > 0:
+            if len(online) < expected_count:
+                add("ERROR", "Nombre de tally insuffisant", f"{len(online)}/{expected_count} en ligne")
+            elif len(online) > expected_count:
+                add("WARNING", "Plus de tally que prevu", f"{len(online)}/{expected_count} en ligne")
+            else:
+                add("OK", "Nombre de tally attendu", f"{len(online)}/{expected_count}")
 
         if offline:
             add("ERROR", "Tally hors ligne", ", ".join(offline))
