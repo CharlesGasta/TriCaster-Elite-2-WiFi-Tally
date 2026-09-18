@@ -965,13 +965,36 @@ class Handler(BaseHTTPRequestHandler):
             self.send_text(404, "Not found", "text/plain")
             return
 
+        if is_production_mode():
+            self.send_text(
+                423,
+                json.dumps({
+                    "message": "MODE PRODUCTION ACTIF : OTA bloquee.",
+                    "successes": [],
+                    "failures": ["Deverrouillez le Manager avant une mise a jour."]
+                }, ensure_ascii=False),
+                "application/json"
+            )
+            return
+
+        q = urllib.parse.parse_qs(parsed.query)
+        requested = []
+        raw_targets = q.get("targets", [""])[0].strip()
+        if raw_targets:
+            requested = [name.strip() for name in raw_targets.split(",") if name.strip()]
+        stop_on_failure = q.get("stop_on_failure", ["1"])[0] != "0"
+
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
 
         if length <= 0 or length > MAX_OTA_SIZE:
-            self.send_text(400, "Taille firmware invalide", "text/plain")
+            self.send_text(
+                400,
+                json.dumps({"message": "Taille firmware invalide", "successes": [], "failures": []}, ensure_ascii=False),
+                "application/json"
+            )
             return
 
         firmware = self.rfile.read(length)
@@ -979,43 +1002,101 @@ class Handler(BaseHTTPRequestHandler):
         if not firmware or firmware[0] != 0xE9:
             self.send_text(
                 400,
-                "Le fichier ne ressemble pas a un firmware ESP8266 .bin valide (magic 0xE9 absent).",
-                "text/plain"
+                json.dumps({
+                    "message": "Le fichier ne ressemble pas a un firmware ESP8266 .bin valide.",
+                    "successes": [],
+                    "failures": ["Magic byte 0xE9 absent"]
+                }, ensure_ascii=False),
+                "application/json"
             )
             return
 
         now = time.time()
         with devices_lock:
-            targets = [
-                (name, str(device.get("ip")))
+            online_snapshot = {
+                name: dict(device)
                 for name, device in devices.items()
-                if device.get("ip") and (now - device.get("last_seen", 0)) <= OFFLINE_AFTER
-            ]
+                if device.get("ip") and device_online(device, now)
+            }
 
-        if not targets:
-            self.send_text(400, "Aucun tally connecte a mettre a jour.", "text/plain")
+        if requested:
+            missing = [name for name in requested if name not in online_snapshot]
+            if missing:
+                self.send_text(
+                    400,
+                    json.dumps({
+                        "message": "Certains tally demandes ne sont pas en ligne.",
+                        "successes": [],
+                        "failures": missing
+                    }, ensure_ascii=False),
+                    "application/json"
+                )
+                return
+            target_names = requested
+        else:
+            target_names = sorted(online_snapshot.keys())
+
+        if not target_names:
+            self.send_text(
+                400,
+                json.dumps({"message": "Aucun tally connecte a mettre a jour.", "successes": [], "failures": []}, ensure_ascii=False),
+                "application/json"
+            )
             return
 
         successes = []
         failures = []
+        log_event("OTA_BATCH_START", details=f"{len(target_names)} cible(s): {', '.join(target_names)}", level="WARNING")
 
-        for name, ip in sorted(targets):
+        for index, name in enumerate(target_names, start=1):
+            device = online_snapshot.get(name, {})
+            ip = str(device.get("ip") or "")
+            old_uptime = int(device.get("uptime_ms") or 0)
+            old_fw = str(device.get("firmware") or "?")
+            started_at = time.time()
+
             try:
+                log_event("OTA_START", name, f"{index}/{len(target_names)} - {ip} - FW {old_fw}", "WARNING")
                 push_ota(ip, firmware)
-                successes.append(name)
-                print(f"[OTA] {name} ({ip}) : firmware envoye")
+
+                ok, detail = wait_for_ota_recovery(name, old_uptime, started_at)
+                if ok:
+                    successes.append(name)
+                    log_event("OTA_VERIFIED", name, detail)
+                else:
+                    failures.append(f"{name}: {detail}")
+                    log_event("OTA_FAILED", name, detail, "ERROR")
+                    if stop_on_failure:
+                        break
+
             except Exception as error:
-                failures.append(f"{name}: {error}")
-                print(f"[OTA] {name} ({ip}) : ECHEC - {error}")
+                detail = str(error)
+                failures.append(f"{name}: {detail}")
+                log_event("OTA_FAILED", name, detail, "ERROR")
+                if stop_on_failure:
+                    break
 
-            # L'ESP redemarre apres la mise a jour. On espace legerement les envois.
-            time.sleep(0.25)
-
-        message = f"OTA terminee : {len(successes)}/{len(targets)} tally mis a jour."
+        stopped_early = bool(failures and stop_on_failure and len(successes) + len(failures) < len(target_names))
+        message = f"OTA verifiee : {len(successes)}/{len(target_names)} tally valides."
         if failures:
-            message += " Echecs : " + " | ".join(failures)
+            message += f" {len(failures)} echec(s)."
+        if stopped_early:
+            message += " Deploiement arrete au premier echec."
 
-        self.send_text(200 if not failures else 207, message, "text/plain")
+        log_event(
+            "OTA_BATCH_END",
+            details=message,
+            level="ERROR" if failures else "INFO"
+        )
+
+        response = {
+            "message": message,
+            "successes": successes,
+            "failures": failures,
+            "stopped_early": stopped_early,
+            "targets": target_names
+        }
+        self.send_text(200 if not failures else 207, json.dumps(response, ensure_ascii=False), "application/json")
 
 def get_local_ip():
     try:
@@ -1037,17 +1118,21 @@ def get_local_ip():
 
 def main():
     load_manager_config()
+    log_event("MANAGER_START", details=f"V{MANAGER_VERSION}")
     threading.Thread(target=udp_listener, daemon=True).start()
+    threading.Thread(target=offline_monitor, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)
     local_ip = get_local_ip()
     print()
     print("====================================")
-    print("   TRICASTER ELITE 2 TALLY MANAGER V4")
+    print(f"   TRICASTER ELITE 2 TALLY MANAGER V{MANAGER_VERSION}")
     print("====================================")
     print(f"PC local          : http://127.0.0.1:{HTTP_PORT}")
     print(f"TÉLÉPHONE (Wi-Fi) : http://{local_ip}:{HTTP_PORT}/mobile")
     print("Le téléphone et le PC doivent être sur le même réseau.")
     print(f"Configuration     : {CONFIG_FILE}")
+    print(f"Journal           : {EVENT_LOG_FILE}")
+    print(f"Mode production   : {'ACTIF' if is_production_mode() else 'DESACTIVE'}")
     print("Authentification  : utilisateur admin + token API configure")
     print("CTRL+C pour arrêter.")
     print()
@@ -1055,6 +1140,7 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nArrêt du manager.")
+        log_event("MANAGER_STOP", details="Arret manuel")
     finally:
         server.server_close()
 
