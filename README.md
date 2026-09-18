@@ -348,7 +348,7 @@ L'affectation peut ensuite être modifiée depuis le Manager sans reflasher l'ES
 
 ---
 
-## Tally Manager V4
+## Tally Manager V4.1
 
 Fichier :
 
@@ -358,7 +358,7 @@ TriCaster_Elite2_Tally_Manager.py
 
 Le Manager n'est toujours **pas dans le chemin critique du tally** : si le Manager est fermé, chaque ESP continue à lire directement le TriCaster.
 
-Le Manager V4 fournit :
+Le Manager V4.1 fournit :
 
 - détection automatique des tally
 - état connecté / hors ligne
@@ -381,6 +381,10 @@ Le Manager V4 fournit :
 - configuration complète du réseau ESP
 - DHCP / IP statique
 - modification de l'IP TriCaster
+- **PRE-FLIGHT / GO-NO-GO** avant production : tally attendus, online/offline, RSSI, latence TriCaster, doublons IP/caméra, versions firmware et cohérence de l'IP TriCaster
+- **MODE PRODUCTION** persistant : verrouille OTA, reboot, Identify, affectations, couleurs, luminosité et configuration réseau
+- **OTA sécurisée** par tally, sélection ou parc complet : redémarrage et retour sain vérifiés avant de passer au boîtier suivant, avec arrêt au premier échec
+- **journal persistant des incidents et actions** avec export CSV : pertes Wi-Fi/TriCaster, roaming, offline/recovery, reboot, OTA et changements de configuration
 - **mise à jour OTA de tous les tally connectés**
 - interface desktop et mobile
 
@@ -442,6 +446,42 @@ Remplacez `CHANGE_ME` par le **même token que celui configuré dans les ESP** a
 Le Manager envoie le firmware séquentiellement à tous les tally actuellement en ligne. Chaque ESP redémarre automatiquement après une mise à jour réussie.
 
 Conservez toujours un premier boîtier de test avant de lancer une mise à jour de parc pendant une période de production.
+
+### PRE-FLIGHT et mode production
+
+Avant un direct, renseignez le nombre de tally attendus puis cliquez **CHECK PRODUCTION**.
+
+Le Manager retourne :
+
+```text
+GO         aucun problème détecté
+ATTENTION  avertissement non bloquant
+NO-GO      au moins une erreur critique
+```
+
+Le contrôle vérifie notamment les boîtiers en ligne, le RSSI, la latence et la fraîcheur des données TriCaster, les doublons IP/caméra, les versions firmware et la cohérence de l'adresse TriCaster.
+
+Après validation, activez **MODE PRODUCTION**. Le verrou est persistant et reste actif après un redémarrage du Manager. Il bloque côté serveur les commandes susceptibles de perturber un direct : OTA, reboot, Identify, affectations, couleurs, luminosité et configuration réseau.
+
+### OTA sécurisée V4.1
+
+L'OTA peut cibler :
+
+- un seul tally
+- une sélection de tally
+- tous les tally en ligne
+
+Les boîtiers sont traités **séquentiellement**. Après chaque envoi, le Manager attend un vrai redémarrage puis vérifie que le boîtier est revenu avec Wi-Fi connecté et données TriCaster fraîches. Par défaut, le déploiement s'arrête au premier échec.
+
+### Journal persistant
+
+Le Manager crée à côté de l'EXE / du script :
+
+```text
+tally_manager_events.csv
+```
+
+Le journal conserve les événements importants avec date et heure : offline/recovery, pertes Wi-Fi, pertes TriCaster, roaming, erreurs tally, reboot, changements de configuration et OTA. Il est consultable dans l'interface et exportable en CSV. Une rotation automatique conserve le journal précédent lorsque le fichier courant dépasse environ 5 Mo.
 
 ### Diagnostic de couverture
 
@@ -778,7 +818,7 @@ Keep static tally addresses outside the DHCP pool.
 
 DHCP is convenient for portable deployments. For predictable addresses, use **DHCP reservations** on the router.
 
-The V4 Manager can change these settings remotely without reflashing the ESP.
+The V4.1 Manager can change these settings remotely without reflashing the ESP.
 
 ### Migration from previous firmware
 
@@ -803,7 +843,7 @@ TALLY-03 → input3
 
 Assignments can later be changed from the Manager without reflashing the tally.
 
-## Manager V4
+## Manager V4.1
 
 File:
 
@@ -813,7 +853,7 @@ TriCaster_Elite2_Tally_Manager.py
 
 The Manager is still **not part of the critical tally path**. If the Manager is closed, every ESP continues polling the TriCaster directly.
 
-V4 features include:
+V4.1 features include:
 
 - automatic tally discovery
 - online/offline status
@@ -836,6 +876,10 @@ V4 features include:
 - full ESP network configuration
 - DHCP / static IP
 - TriCaster IP configuration
+- **pre-flight GO / ATTENTION / NO-GO checks**
+- persistent server-side **Production Mode** lock
+- **verified staged OTA** for one tally, a selection or the complete online fleet, stopping on first failure by default
+- **persistent event/incident logging** with CSV export
 - **fleet OTA update for all online tally units**
 - desktop and mobile UI
 
@@ -890,13 +934,27 @@ Replace `CHANGE_ME` with the **same token configured on the ESP units** before u
 ### OTA firmware update
 
 1. Compile the ESP8266 firmware in Arduino IDE and export the compiled `.bin`.
-2. Open Manager V4.
+2. Open Manager V4.1.
 3. Select the `.bin` file under **Firmware OTA**.
-4. Click **UPDATE ALL TALLY UNITS** / the corresponding V4 update button.
+4. Click **UPDATE ALL TALLY UNITS** / the corresponding V4.1 update button.
 
 The Manager sends the firmware sequentially to every currently online tally. Each ESP reboots automatically after a successful update.
 
 Always validate a new firmware on one test tally before deploying it to a live production fleet.
+
+### Pre-flight and Production Mode
+
+Set the expected tally count, then run **CHECK PRODUCTION** before going live. The Manager checks online/offline units, RSSI, TriCaster latency and data age, duplicate IP/camera assignments, firmware consistency and TriCaster IP consistency.
+
+After validation, enable **Production Mode**. The lock persists across Manager restarts and is enforced server-side, blocking OTA, reboot, Identify and configuration changes while live.
+
+### Verified staged OTA
+
+V4.1 can update one tally, a selected group or all online devices. Devices are processed sequentially. After each upload the Manager waits for an actual reboot and verifies that Wi-Fi and TriCaster tally data have recovered before continuing. Deployment stops on the first failed verification by default.
+
+### Persistent event log
+
+The Manager writes `tally_manager_events.csv` beside the executable/script. It records important Wi-Fi, TriCaster, roaming, offline/recovery, reboot, configuration and OTA events and can be exported from the UI. The active log automatically rotates at roughly 5 MB.
 
 ### Coverage diagnostics
 
