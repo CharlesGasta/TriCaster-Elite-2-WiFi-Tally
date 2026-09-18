@@ -38,7 +38,8 @@ manager_config = {
 def load_manager_config():
     global manager_config
     try:
-        if CONFIG_FILE.exists():
+        existed = CONFIG_FILE.exists()
+        if existed:
             loaded = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 manager_config.update(loaded)
@@ -46,6 +47,8 @@ def load_manager_config():
             manager_config["ap_aliases"] = {}
         if not manager_config.get("api_token"):
             manager_config["api_token"] = "CHANGE_ME"
+        if not existed:
+            save_manager_config()
     except Exception as error:
         print(f"[CONFIG] Impossible de lire {CONFIG_FILE.name}: {error}")
 
