@@ -12,3 +12,7 @@ dist/
 *.bin
 *.elf
 *.map
+
+# Runtime production logs
+tally_manager_events.csv
+tally_manager_events_previous.csv
