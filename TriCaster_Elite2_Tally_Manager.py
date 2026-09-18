@@ -19,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-MANAGER_VERSION = "4.1.0"
+MANAGER_VERSION = "4.1.1"
 HTTP_PORT = 8099
 UDP_PORT = 4210
 OFFLINE_AFTER = 3.5
@@ -318,7 +318,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111111">
-<title>TriCaster Elite 2 Tally Manager V4.1</title>
+<title>TriCaster Elite 2 Tally Manager V4.1.1</title>
 <style>
 *{box-sizing:border-box} html{-webkit-text-size-adjust:100%}
 body{font-family:Arial,sans-serif;background:#111;color:#eee;margin:0;padding:12px;min-height:100vh}
@@ -352,7 +352,7 @@ label{display:block;color:#bbb;font-size:11px;margin-bottom:3px}.actions{display
 </head>
 <body>
 <div class="wrap">
-<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1><div class="sub">Version V4.1 — PRE-FLIGHT · PRODUCTION LOCK · OTA vérifiée · logs persistants</div></div>
+<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1><div class="sub">Version V4.1.1 — PRE-FLIGHT · PRODUCTION LOCK · OTA vérifiée · logs persistants</div></div>
 <div class="access"><strong>Accès téléphone :</strong><span class="access-url" id="access-url"></span></div></div>
 
 <div class="panel safety">
@@ -510,10 +510,13 @@ function card(d){
   const wifiText=wifiLabels[d.wifi_state]||String(d.wifi_state||'Wi-Fi OK');
   const latency=d.tricaster_latency_ms??'-',uptime=humanMs(d.uptime_ms),tallyAge=humanMs(d.last_tally_age_ms),roamAge=Number(d.last_roam_age_ms||0)>0?humanMs(d.last_roam_age_ms):'jamais';
   const losses='Wi-Fi '+(d.wifi_loss_count??0)+' · TriCaster '+(d.tricaster_loss_count??0)+' · roam '+(d.roam_count??0);
+  const currentIp=String(d.ip||'-');
+  const savedStaticIp=String(d.static_ip||d.ip||'192.168.1.81');
+  const ipModeText=d.dhcp?'IP DHCP : '+currentIp:'IP statique : '+currentIp;
   const checked=otaSelection.has(name)?'checked':'';
   return '<div class="card '+(productionMode?'locked-card':'')+'">'+
     '<div class="top"><div><div class="name">'+safeName+'</div>'+
-    '<div class="meta">'+esc(d.ip||'-')+' · <span class="'+rssiClass(rssi)+'">RSSI '+rssiText+'</span> · '+esc(channelText)+'</div>'+
+    '<div class="meta"><strong>'+esc(ipModeText)+'</strong> · <span class="'+rssiClass(rssi)+'">RSSI '+rssiText+'</span> · '+esc(channelText)+'</div>'+
     '<div class="meta">AP : '+esc(apLabel)+(d.ap_name?' · '+esc(bssidText):'')+' · '+esc(wifiText)+'</div>'+
     '<div class="meta diag">FW '+esc(d.firmware||'?')+' · TriCaster '+esc(String(latency))+' ms · dernière trame '+esc(tallyAge)+' · uptime '+esc(uptime)+'</div>'+
     '<div class="meta diag">Pertes : '+esc(losses)+' · dernier roaming : '+esc(roamAge)+'</div></div>'+
@@ -535,7 +538,8 @@ function card(d){
       '<div><label>Mot de passe Wi-Fi (vide = inchangé)</label><input type="password" id="wifi-pass-'+safeName+'" maxlength="64" '+adminDisabled+'></div>'+
       '<div><label>TriCaster</label><input type="text" id="tricaster-'+safeName+'" value="'+esc(d.tricaster||'192.168.1.50')+'" '+adminDisabled+'></div>'+
       '<div><label><input type="checkbox" id="dhcp-'+safeName+'" '+(d.dhcp?'checked':'')+' '+adminDisabled+'> DHCP</label></div>'+
-      '<div><label>Adresse IP fixe</label><input type="text" id="new-ip-'+safeName+'" value="'+esc(d.ip||'192.168.1.81')+'" '+adminDisabled+'></div>'+
+      (d.dhcp?'<div><label>IP DHCP actuelle</label><input type="text" value="'+esc(currentIp)+'" disabled></div>':'<div><label>Mode IP</label><input type="text" value="STATIQUE" disabled></div>')+
+      '<div><label>Adresse IP statique mémorisée</label><input type="text" id="new-ip-'+safeName+'" value="'+esc(savedStaticIp)+'" '+adminDisabled+'></div>'+
       '<div><label>Gateway</label><input type="text" id="gateway-'+safeName+'" value="'+esc(d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
       '<div><label>Subnet</label><input type="text" id="subnet-'+safeName+'" value="'+esc(d.subnet||'255.255.255.0')+'" '+adminDisabled+'></div>'+
       '<div><label>DNS</label><input type="text" id="dns-'+safeName+'" value="'+esc(d.dns||d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
