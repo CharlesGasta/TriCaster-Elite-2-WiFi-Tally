@@ -590,6 +590,10 @@ void handleSetupSave() {
   }
 
   if (newToken.length() > 0) {
+    if (newToken.length() < 8 || newToken.length() > 32) {
+      server.send(400, "text/plain", "Token administrateur invalide (8 a 32 caracteres)");
+      return;
+    }
     newToken.toCharArray(config.adminToken, sizeof(config.adminToken));
   }
 
@@ -777,7 +781,11 @@ void startSetupPortal() {
   WiFi.softAPConfig(apIP, apIP, apMask);
 
   String apName = String(config.name) + "-SETUP";
-  WiFi.softAP(apName.c_str());
+  String setupPassword = strlen(config.adminToken) >= 8
+                       ? String(config.adminToken)
+                       : String(DEFAULT_ADMIN_TOKEN);
+
+  WiFi.softAP(apName.c_str(), setupPassword.c_str());
 
   dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -788,6 +796,7 @@ void startSetupPortal() {
   Serial.println("============================================");
   Serial.println("[SETUP] Aucun reseau joignable.");
   Serial.println("[SETUP] Connectez-vous au Wi-Fi : " + apName);
+  Serial.println("[SETUP] Mot de passe : " + setupPassword);
   Serial.println("[SETUP] Ouvrez : http://192.168.4.1/");
   Serial.println("============================================");
 
