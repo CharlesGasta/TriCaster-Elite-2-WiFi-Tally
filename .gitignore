@@ -1,0 +1,14 @@
+# Local Manager configuration contains the private administrator token
+tally_manager_config.json
+
+# Python / PyInstaller
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+
+# Arduino local build artifacts
+*.bin
+*.elf
+*.map
