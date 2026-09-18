@@ -1,19 +1,71 @@
-"""TriCaster Elite 2 Tally Manager - version production V3 (multi-AP diagnostics)."""
+"""TriCaster Elite 2 Tally Manager - production V4.
 
+Multi-AP diagnostics, persistent configuration, authenticated ESP control,
+network configuration and fleet OTA updates.
+"""
+
+import base64
 import json
+import os
 import socket
+import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTTP_PORT = 8099
 UDP_PORT = 4210
 OFFLINE_AFTER = 3.5
+MAX_OTA_SIZE = 4 * 1024 * 1024
+
+APP_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+CONFIG_FILE = APP_DIR / "tally_manager_config.json"
 
 devices = {}
 devices_lock = threading.Lock()
+config_lock = threading.Lock()
+
+manager_config = {
+    "api_token": "CHANGE_ME",
+    "ap_aliases": {}
+}
+
+
+def load_manager_config():
+    global manager_config
+    try:
+        if CONFIG_FILE.exists():
+            loaded = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                manager_config.update(loaded)
+        if not isinstance(manager_config.get("ap_aliases"), dict):
+            manager_config["ap_aliases"] = {}
+        if not manager_config.get("api_token"):
+            manager_config["api_token"] = "CHANGE_ME"
+    except Exception as error:
+        print(f"[CONFIG] Impossible de lire {CONFIG_FILE.name}: {error}")
+
+
+def save_manager_config():
+    with config_lock:
+        CONFIG_FILE.write_text(
+            json.dumps(manager_config, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+
+def current_token():
+    with config_lock:
+        return str(manager_config.get("api_token") or "CHANGE_ME")
+
+
+def basic_auth_header(token=None):
+    token = current_token() if token is None else str(token)
+    raw = f"admin:{token}".encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
 
 PAGE = r"""<!doctype html>
 <html lang="fr">
@@ -21,7 +73,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111111">
-<title>TriCaster Elite 2 Tally Manager V3</title>
+<title>TriCaster Elite 2 Tally Manager V4</title>
 <style>
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -52,14 +104,22 @@ button{border:0;border-radius:7px;padding:7px 5px;min-height:34px;font-size:11px
 button:disabled{opacity:.45;cursor:not-allowed}
 .state{font-weight:700}.program{color:#ff5757}.preview{color:#4bd36b}.error{color:#f0a020}.idle{color:#aaa}
 .empty{padding:30px;text-align:center;color:#888;grid-column:1/-1}
-@media(max-width:650px){body{padding:8px}.header{display:block}.access{margin-top:7px;max-width:none}.grid{gap:6px}#list{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr 1fr}.config-grid button{grid-column:1/-1}}
+.tools{display:grid;grid-template-columns:1.4fr 1fr auto;gap:10px;align-items:center;background:#181818;border:1px solid #333;border-radius:10px;padding:10px;margin-bottom:10px}
+.rssi-good{color:#58d67b}.rssi-warn{color:#f0b84d}.rssi-bad{color:#ff6666}.diag{margin-top:5px;line-height:1.45}
+@media(max-width:650px){body{padding:8px}.header{display:block}.access{margin-top:7px;max-width:none}.tools{grid-template-columns:1fr}.grid{gap:6px}#list{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr 1fr}.config-grid button{grid-column:1/-1}}
 </style>
 </head>
 <body>
 <div class="wrap">
 <div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1>
-<div class="sub">Version V3 — administration des tally autonomes · diagnostic multi-AP</div></div>
+<div class="sub">Version V4 — multi-AP · diagnostic · réseau · OTA</div></div>
 <div class="access"><strong>Accès téléphone :</strong><span class="access-url" id="access-url"></span></div></div>
+<div class="tools">
+  <div><strong>Firmware OTA</strong><div class="sub">Sélectionner un .bin ESP8266 puis mettre à jour tous les tally actuellement connectés.</div></div>
+  <input type="file" id="firmwareFile" accept=".bin,application/octet-stream">
+  <button class="save" onclick="uploadFirmware()">METTRE À JOUR TOUS LES TALLY</button>
+  <span id="otaStatus" class="sub"></span>
+</div>
 <div id="list"><div class="empty">Recherche des tally…</div></div>
 </div>
 <script>
@@ -71,21 +131,91 @@ function jsq(s){return JSON.stringify(String(s))}
 function rgbHex(v){if(!Array.isArray(v)) return '#000000';return '#'+v.map(x=>Math.max(0,Math.min(255,Number(x)||0)).toString(16).padStart(2,'0')).join('')}
 async function api(name,action,params={}){const q=new URLSearchParams({name,action,...params});const r=await fetch('/api?'+q.toString(),{cache:'no-store'});if(!r.ok) alert(await r.text())}
 function sendBrightness(name,value){const output=document.getElementById('bv-'+name);if(output) output.textContent=value+'%';clearTimeout(brightnessTimers[name]);brightnessTimers[name]=setTimeout(()=>api(name,'brightness',{value}),100)}
+function humanMs(ms){ms=Number(ms)||0;if(ms<1000)return ms+' ms';let s=Math.floor(ms/1000);if(s<60)return s+' s';let m=Math.floor(s/60);if(m<60)return m+' min';let h=Math.floor(m/60);if(h<48)return h+' h';return Math.floor(h/24)+' j'}
+function rssiClass(v){v=Number(v);if(v>=-65)return'rssi-good';if(v>=-72)return'rssi-warn';return'rssi-bad'}
+async function uploadFirmware(){
+  const input=document.getElementById('firmwareFile'), status=document.getElementById('otaStatus');
+  const file=input.files&&input.files[0];
+  if(!file)return alert('Sélectionne un fichier .bin.');
+  if(!confirm('Mettre à jour tous les tally actuellement connectés avec '+file.name+' ?'))return;
+  status.textContent='Mise à jour en cours…';
+  try{
+    const r=await fetch('/ota-upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':file.name},body:file});
+    const text=await r.text();status.textContent=text;if(!r.ok)alert(text);
+  }catch(e){status.textContent='Erreur OTA : '+e}
+}
 async function saveSettings(name){const cam=document.getElementById('cam-'+name), pgm=document.getElementById('pgm-'+name), prev=document.getElementById('prev-'+name);if(cam&&pgm&&prev) await api(name,'save',{camera:cam.value,pgm:pgm.value,preview:prev.value})}
-async function saveNetwork(oldName){const newName=document.getElementById('new-name-'+oldName).value.trim();const newIp=document.getElementById('new-ip-'+oldName).value.trim();if(!newName||!newIp)return alert('Le nom et l’adresse IP sont obligatoires.');if(!confirm('Appliquer '+newName+' sur '+newIp+' ? Le tally va redémarrer.'))return;await api(oldName,'config',{new_name:newName,new_ip:newIp,tricaster:'192.168.1.50'})}
+async function saveNetwork(oldName){
+  const g=id=>document.getElementById(id+'-'+oldName);
+  const newName=g('new-name').value.trim(), dhcp=g('dhcp').checked?'1':'0';
+  const params={new_name:newName,dhcp,ssid:g('ssid').value.trim(),wifi_password:g('wifi-pass').value,
+    new_ip:g('new-ip').value.trim(),gateway:g('gateway').value.trim(),subnet:g('subnet').value.trim(),
+    dns:g('dns').value.trim(),tricaster:g('tricaster').value.trim()};
+  if(!newName)return alert('Le nom est obligatoire.');
+  if(!confirm('Appliquer la configuration réseau à '+oldName+' ? Le tally va redémarrer.'))return;
+  await api(oldName,'config',params);
+}
+async function saveApAlias(name){
+  const input=document.getElementById('ap-alias-'+name);
+  if(!input)return;
+  await api(name,'ap_alias',{alias:input.value.trim()});
+}
 function card(d){
   const online=d.online, disabled=online?'':'disabled';
   const stateClass=d.state==='program'?'program':d.state==='preview'?'preview':d.state==='error'?'error':'idle';
   const pgm=rgbHex(d.pgm||[255,0,0]), prev=rgbHex(d.preview||[0,255,0]);
   const name=String(d.name), safeName=esc(name), quotedName=jsq(name);
-  let cams='';for(let i=1;i<=16;i++) cams+=`<option value="${i}" ${Number(d.camera)===i?'selected':''}>CAM ${i}</option>`;
-  const rssiText=online?`${d.rssi??'-'} dBm`:'--';
+  let cams='';for(let i=1;i<=32;i++) cams+=`<option value="${i}" ${Number(d.camera)===i?'selected':''}>CAM ${i}</option>`;
+
+  const rssi=Number(d.rssi??-100), rssiText=online?`${rssi} dBm`:'--';
   const channelText=online&&d.channel?`CH ${d.channel}`:'CH --';
   const bssidText=online&&d.bssid?String(d.bssid):'--:--:--:--:--:--';
+  const apLabel=d.ap_name||bssidText;
   const wifiLabels={connected:'Wi-Fi OK',roaming:'ROAMING',searching:'RECHERCHE Wi-Fi',connecting:'CONNEXION Wi-Fi'};
   const wifiText=wifiLabels[d.wifi_state]||String(d.wifi_state||'Wi-Fi OK');
-  return `<div class="card"><div class="top"><div><div class="name">${safeName}</div><div class="meta">${esc(d.ip||'-')} · RSSI ${rssiText} · ${esc(channelText)}</div><div class="meta">AP/BSSID : ${esc(bssidText)} · ${esc(wifiText)}</div></div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div><div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div><div class="grid"><div><label>Caméra attribuée</label><select id="cam-${safeName}" onchange='saveSettings(${quotedName})' ${disabled}>${cams}</select></div><div><label>Couleur PROGRAM</label><input type="color" id="pgm-${safeName}" value="${pgm}" onchange='saveSettings(${quotedName})' ${disabled}></div><div><label>Luminosité : <span id="bv-${safeName}">${d.brightness??100}%</span></label><input type="range" min="1" max="100" value="${d.brightness??100}" id="b-${safeName}" onpointerdown='editingBrightness[${quotedName}]=true' onpointerup='editingBrightness[${quotedName}]=false' onpointercancel='editingBrightness[${quotedName}]=false' oninput='sendBrightness(${quotedName},this.value)' ${disabled}></div><div><label>Couleur PREVIEW</label><input type="color" id="prev-${safeName}" value="${prev}" onchange='saveSettings(${quotedName})' ${disabled}></div></div><div class="actions"><button class="ident" ${disabled} onclick='api(${quotedName},"identify")'>IDENTIFY</button><button class="reboot" ${disabled} onclick='if(confirm("Redémarrer "+${quotedName}+" ?")) api(${quotedName},"reboot")'>REBOOT</button></div><details class="config" data-tally="${safeName}"><summary>CONFIGURATION DU BOÎTIER</summary><div class="config-grid"><div><label>Nom / cadreur</label><input type="text" id="new-name-${safeName}" maxlength="31" value="${safeName}" ${disabled}></div><div><label>Adresse IP fixe</label><input type="text" id="new-ip-${safeName}" inputmode="decimal" value="${esc(d.ip||'192.168.1.81')}" ${disabled}></div><button class="save" ${disabled} onclick='saveNetwork(${quotedName})'>ENREGISTRER</button></div></details></div>`;
+  const latency=d.tricaster_latency_ms??'-';
+  const uptime=humanMs(d.uptime_ms);
+  const losses=`Wi-Fi ${d.wifi_loss_count??0} · TriCaster ${d.tricaster_loss_count??0} · roam ${d.roam_count??0}`;
+
+  return `<div class="card">
+    <div class="top"><div><div class="name">${safeName}</div>
+      <div class="meta">${esc(d.ip||'-')} · <span class="${rssiClass(rssi)}">RSSI ${rssiText}</span> · ${esc(channelText)}</div>
+      <div class="meta">AP : ${esc(apLabel)}${d.ap_name?` · ${esc(bssidText)}`:''} · ${esc(wifiText)}</div>
+      <div class="meta diag">FW ${esc(d.firmware||'?')} · TriCaster ${esc(String(latency))} ms · uptime ${esc(uptime)} · pertes : ${esc(losses)}</div>
+    </div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div>
+    <div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div>
+
+    <div class="grid">
+      <div><label>Caméra attribuée</label><select id="cam-${safeName}" onchange='saveSettings(${quotedName})' ${disabled}>${cams}</select></div>
+      <div><label>Couleur PROGRAM</label><input type="color" id="pgm-${safeName}" value="${pgm}" onchange='saveSettings(${quotedName})' ${disabled}></div>
+      <div><label>Luminosité : <span id="bv-${safeName}">${d.brightness??100}%</span></label><input type="range" min="1" max="100" value="${d.brightness??100}" id="b-${safeName}" onpointerdown='editingBrightness[${quotedName}]=true' onpointerup='editingBrightness[${quotedName}]=false' onpointercancel='editingBrightness[${quotedName}]=false' oninput='sendBrightness(${quotedName},this.value)' ${disabled}></div>
+      <div><label>Couleur PREVIEW</label><input type="color" id="prev-${safeName}" value="${prev}" onchange='saveSettings(${quotedName})' ${disabled}></div>
+    </div>
+
+    <div class="actions"><button class="ident" ${disabled} onclick='api(${quotedName},"identify")'>IDENTIFY</button><button class="reboot" ${disabled} onclick='if(confirm("Redémarrer "+${quotedName}+" ?")) api(${quotedName},"reboot")'>REBOOT</button></div>
+
+    <details class="config" data-tally="${safeName}"><summary>CONFIGURATION RÉSEAU / BOÎTIER</summary>
+      <div class="config-grid">
+        <div><label>Nom / cadreur</label><input type="text" id="new-name-${safeName}" maxlength="31" value="${safeName}" ${disabled}></div>
+        <div><label>SSID</label><input type="text" id="ssid-${safeName}" maxlength="32" value="${esc(d.ssid||'')}" ${disabled}></div>
+        <div><label>Mot de passe Wi-Fi (vide = inchangé)</label><input type="password" id="wifi-pass-${safeName}" maxlength="64" ${disabled}></div>
+        <div><label>TriCaster</label><input type="text" id="tricaster-${safeName}" value="${esc(d.tricaster||'192.168.1.50')}" ${disabled}></div>
+        <div><label><input type="checkbox" id="dhcp-${safeName}" ${d.dhcp?'checked':''} ${disabled}> DHCP</label></div>
+        <div><label>Adresse IP fixe</label><input type="text" id="new-ip-${safeName}" value="${esc(d.ip||'192.168.1.81')}" ${disabled}></div>
+        <div><label>Gateway</label><input type="text" id="gateway-${safeName}" value="${esc(d.gateway||'192.168.1.1')}" ${disabled}></div>
+        <div><label>Subnet</label><input type="text" id="subnet-${safeName}" value="${esc(d.subnet||'255.255.255.0')}" ${disabled}></div>
+        <div><label>DNS</label><input type="text" id="dns-${safeName}" value="${esc(d.dns||d.gateway||'192.168.1.1')}" ${disabled}></div>
+        <button class="save" ${disabled} onclick='saveNetwork(${quotedName})'>ENREGISTRER RÉSEAU</button>
+      </div>
+      <div class="config-grid">
+        <div><label>Nom convivial de l'AP actuel</label><input type="text" id="ap-alias-${safeName}" value="${esc(d.ap_name||'')}" placeholder="ex. AP TERRAIN" ${disabled}></div>
+        <div><label>BSSID</label><input type="text" value="${esc(bssidText)}" disabled></div>
+        <button class="save" ${disabled} onclick='saveApAlias(${quotedName})'>NOMMER CET AP</button>
+      </div>
+    </details>
+  </div>`;
 }
+
 async function refresh(){try{const r=await fetch('/devices',{cache:'no-store'}), ds=await r.json();const someoneEditing=Object.values(editingBrightness).some(v=>v===true), active=document.activeElement;const controlFocused=active&&(active.tagName==='INPUT'||active.tagName==='SELECT');if(someoneEditing||controlFocused)return;const openConfigs=new Set([...document.querySelectorAll('details.config[open]')].map(el=>el.dataset.tally).filter(Boolean));document.getElementById('list').innerHTML=ds.length?ds.map(card).join(''):'<div class="empty">Aucun tally détecté.</div>';document.querySelectorAll('details.config').forEach(el=>{if(openConfigs.has(el.dataset.tally)) el.open=true})}catch(e){}}
 refresh();setInterval(refresh,1000);
 </script>
@@ -98,8 +228,37 @@ def hex_to_rgb(value):
         raise ValueError("invalid color")
     return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))
 
-def esp_get(ip, path, timeout=1.0):
-    with urllib.request.urlopen(f"http://{ip}{path}", timeout=timeout) as response:
+def esp_get(ip, path, timeout=1.0, token=None):
+    request = urllib.request.Request(
+        f"http://{ip}{path}",
+        headers={"Authorization": basic_auth_header(token)}
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
+def push_ota(ip, firmware, token=None, timeout=25.0):
+    boundary = "----TallyManagerOTA" + str(int(time.time() * 1000))
+    prefix = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="update"; filename="firmware.bin"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode("utf-8")
+    suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    body = prefix + firmware + suffix
+
+    request = urllib.request.Request(
+        f"http://{ip}/update",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": basic_auth_header(token),
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body))
+        }
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="replace")
 
 def refresh_device_details(ip, name):
