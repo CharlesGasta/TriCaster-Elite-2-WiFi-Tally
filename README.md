@@ -369,6 +369,9 @@ Le Manager fournit :
 - état connecté / hors ligne
 - adresse IP
 - RSSI Wi-Fi
+- **BSSID / point d'accès actuellement utilisé**
+- **canal Wi-Fi**
+- **état Wi-Fi : connected / roaming / searching / connecting**
 - affectation caméra
 - réglage couleur PROGRAM
 - réglage couleur PREVIEW
@@ -742,6 +745,9 @@ Features:
 - automatic tally discovery
 - online/offline status
 - IP and RSSI
+- **current AP / BSSID**
+- **Wi-Fi channel**
+- **Wi-Fi state: connected / roaming / searching / connecting**
 - camera/input assignment
 - PROGRAM and PREVIEW colors
 - per-device brightness
