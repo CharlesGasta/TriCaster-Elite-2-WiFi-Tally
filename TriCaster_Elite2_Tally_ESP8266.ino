@@ -17,8 +17,8 @@
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
 // ou depuis le Tally Manager.
-const char* DEFAULT_WIFI_SSID = "YOUR_config.ssid";
-const char* DEFAULT_WIFI_PASSWORD = "YOUR_config.wifiPassword";
+const char* DEFAULT_WIFI_SSID = "YOUR_WIFI_SSID";
+const char* DEFAULT_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* DEFAULT_ADMIN_TOKEN = "CHANGE_ME";
 
 #define PIN_GREEN D1
@@ -167,7 +167,7 @@ void applyNetworkConfig() {
   if (config.dhcp) {
     WiFi.config(IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0));
   } else {
-    applyNetworkConfig();
+    WiFi.config(savedIP(), gatewayIP(), subnetIP(), dnsIP());
   }
 }
 
