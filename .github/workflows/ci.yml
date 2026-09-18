@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  manager-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python syntax check
+        run: python -m py_compile TriCaster_Elite2_Tally_Manager.py
+
+  esp8266-firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP8266 core
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266
+      - name: Compile firmware
+        run: |
+          mkdir -p /tmp/TriCasterTally
+          cp TriCaster_Elite2_Tally_ESP8266.ino /tmp/TriCasterTally/TriCasterTally.ino
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 /tmp/TriCasterTally
