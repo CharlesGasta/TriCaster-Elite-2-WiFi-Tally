@@ -593,6 +593,10 @@ Configure every AP with:
 - the **same security mode**; WPA2-PSK is recommended for ESP8266 compatibility
 - no NAT on secondary APs
 - no additional DHCP server; use one DHCP server for the LAN
+- **Client Isolation / AP Isolation disabled**
+- do not use an isolated guest network; ESP units must reach the TriCaster and Manager
+- allow local UDP broadcast; the Manager discovers tally units on UDP `4210`
+- avoid aggressive broadcast/multicast suppression on the tally VLAN
 - different AP brands are acceptable when these requirements are met
 - 802.11r/k/v is not required; the ESP8266 firmware performs its own BSSID selection
 
@@ -614,6 +618,8 @@ For six APs, a typical plan is:
 | AP 6 | 11 |
 
 From the fourth AP onward, reuse channels only with as much physical separation as practical between APs sharing the same channel.
+
+For critical productions, power the **router + PoE switch + main APs from a UPS** whenever practical. A failure of the network core would otherwise affect every tally at once.
 
 ### Automatic roaming
 
@@ -690,20 +696,23 @@ The firmware uses inverted PWM for a common-anode RGB strip.
    ```text
    TriCaster_Elite2_Tally_ESP8266.ino
    ```
-5. Enter your Wi-Fi details:
-
-```cpp
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-```
-
-6. Select the tally number:
+5. Select the tally number before the first flash:
 
 ```cpp
 #define DEFAULT_TALLY_NUMBER 1
 ```
 
-7. Compile and upload.
+6. Compile and upload.
+
+V4 still contains compile-time fallback defaults:
+
+```cpp
+const char* DEFAULT_WIFI_SSID = "YOUR_WIFI_SSID";
+const char* DEFAULT_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* DEFAULT_ADMIN_TOKEN = "CHANGE_ME";
+```
+
+However, **network settings no longer require reflashing the ESP**.
 
 Serial monitor:
 
@@ -711,52 +720,65 @@ Serial monitor:
 115200 baud
 ```
 
-## Choosing the TriCaster Elite 2 IP
+## Network setup without reflashing
 
-Public example:
+### First boot / configured Wi-Fi unavailable
+
+At startup, the tally searches for the stored Wi-Fi network. If it cannot find it for about **30 seconds**, it automatically creates:
 
 ```text
-TriCaster Elite 2 : 192.168.1.50
-Gateway           : 192.168.1.1
-Subnet            : 255.255.255.0
+TALLY-01-SETUP
+TALLY-02-SETUP
+...
 ```
 
-Firmware:
+The SETUP Wi-Fi password is the **administrator token**. On a new public firmware build the initial value is:
 
-```cpp
-config.tricaster[0] = 192;
-config.tricaster[1] = 168;
-config.tricaster[2] = 1;
-config.tricaster[3] = 50;
+```text
+CHANGE_ME
 ```
 
-Replace these values with the actual TriCaster address and update the gateway, DNS and broadcast address to match your network.
+Connect a phone or computer to `TALLY-XX-SETUP`, then open:
 
-## Choosing tally IP addresses
-
-Default public example:
-
-| Tally | IP |
-|---|---|
-| TALLY-01 | `192.168.1.81` |
-| TALLY-02 | `192.168.1.82` |
-| TALLY-03 | `192.168.1.83` |
-| TALLY-04 | `192.168.1.84` |
-| TALLY-05 | `192.168.1.85` |
-| TALLY-06 | `192.168.1.86` |
-| TALLY-07 | `192.168.1.87` |
-| TALLY-08 | `192.168.1.88` |
-
-Firmware logic:
-
-```cpp
-config.ip[0] = 192;
-config.ip[1] = 168;
-config.ip[2] = 1;
-config.ip[3] = 80 + constrain(DEFAULT_TALLY_NUMBER, 1, 8);
+```text
+http://192.168.4.1/
 ```
 
-Keep these static addresses outside your DHCP pool or reserve them in your router.
+The setup portal can configure:
+
+- tally name
+- 2.4 GHz Wi-Fi SSID
+- Wi-Fi password
+- **DHCP** or **static IP**
+- IP, gateway, subnet and DNS in static mode
+- TriCaster IP
+- administrator token
+
+The ESP saves the configuration to EEPROM and reboots.
+
+> Replace `CHANGE_ME` immediately with a private **8 to 32 character** token. The token protects the administration API, OTA updates and the fallback `TALLY-XX-SETUP` network.
+
+### DHCP or static IP
+
+Both modes are supported.
+
+Static addresses are convenient for a fixed broadcast system:
+
+```text
+TALLY-01 : 192.168.1.81
+TALLY-02 : 192.168.1.82
+...
+```
+
+Keep static tally addresses outside the DHCP pool.
+
+DHCP is convenient for portable deployments. For predictable addresses, use **DHCP reservations** on the router.
+
+The V4 Manager can change these settings remotely without reflashing the ESP.
+
+### Migration from previous firmware
+
+V4 automatically recognizes the previous EEPROM layout and preserves the existing tally name, static IP, TriCaster IP, camera assignment, colors and brightness while adding the new V4 network settings.
 
 ## Camera/input assignment
 
@@ -777,7 +799,7 @@ TALLY-03 → input3
 
 Assignments can later be changed from the Manager without reflashing the tally.
 
-## Manager
+## Manager V4
 
 File:
 
@@ -785,21 +807,33 @@ File:
 TriCaster_Elite2_Tally_Manager.py
 ```
 
-Features:
+The Manager is still **not part of the critical tally path**. If the Manager is closed, every ESP continues polling the TriCaster directly.
+
+V4 features include:
 
 - automatic tally discovery
 - online/offline status
-- IP and RSSI
-- **current AP / BSSID**
-- **Wi-Fi channel**
-- **Wi-Fi state: connected / roaming / searching / connecting**
-- camera/input assignment
-- PROGRAM and PREVIEW colors
-- per-device brightness
+- RSSI with quality indication
+- current **AP / BSSID**
+- friendly AP names such as `COURT AP` or `STANDS AP`
+- Wi-Fi channel
+- Wi-Fi state: `connected`, `roaming`, `searching`, `connecting`
+- firmware version
+- ESP uptime
+- TriCaster response latency
+- roaming counter
+- Wi-Fi loss counter
+- TriCaster loss counter
+- camera/input assignment from 1 to 32
+- PROGRAM / PREVIEW colors
+- brightness
 - Identify
 - remote reboot
-- device name and IP configuration
-- mobile interface
+- full ESP network configuration
+- DHCP / static IP
+- TriCaster IP configuration
+- **fleet OTA update for all online tally units**
+- desktop and mobile UI
 
 Ports:
 
@@ -807,7 +841,7 @@ Ports:
 |---|---|
 | Manager web UI | TCP `8099` |
 | Discovery / heartbeat | UDP `4210` |
-| ESP8266 HTTP API | TCP `80` |
+| ESP8266 API / OTA | TCP `80` |
 
 Local UI:
 
@@ -821,7 +855,71 @@ Mobile/LAN UI:
 http://MANAGER_PC_IP:8099/mobile
 ```
 
-The public Manager uses `192.168.1.50` as its example TriCaster IP. Replace all occurrences of this address with your own TriCaster IP before building the EXE.
+### Authentication
+
+The Manager and ESP administration endpoints use HTTP Basic authentication:
+
+```text
+Username : admin
+Password : administrator token
+```
+
+Persistent Manager settings are stored next to the script / EXE:
+
+```text
+tally_manager_config.json
+```
+
+Default public configuration:
+
+```json
+{
+  "api_token": "CHANGE_ME",
+  "ap_aliases": {}
+}
+```
+
+Replace `CHANGE_ME` with the **same token configured on the ESP units** before using the system on a shared network.
+
+> Administration uses HTTP on the local LAN. Keep the tally network private / isolated and do not expose these endpoints directly to the Internet.
+
+### OTA firmware update
+
+1. Compile the ESP8266 firmware in Arduino IDE and export the compiled `.bin`.
+2. Open Manager V4.
+3. Select the `.bin` file under **Firmware OTA**.
+4. Click **UPDATE ALL TALLY UNITS** / the corresponding V4 update button.
+
+The Manager sends the firmware sequentially to every currently online tally. Each ESP reboots automatically after a successful update.
+
+Always validate a new firmware on one test tally before deploying it to a live production fleet.
+
+### Coverage diagnostics
+
+Heartbeat/status data includes:
+
+```text
+firmware
+rssi
+bssid
+channel
+wifi_state
+uptime_ms
+tricaster_latency_ms
+last_tally_age_ms
+roam_count
+wifi_loss_count
+tricaster_loss_count
+last_roam_age_ms
+```
+
+Useful RSSI reference:
+
+```text
+>= -65 dBm     very good
+-66 to -72     usable / monitor
+< -72 dBm      improve coverage
+```
 
 ## Building the Windows Manager
 
