@@ -745,6 +745,9 @@ void setupRoutes() {
   server.on("/brightness", HTTP_GET, handleBrightness);
   server.on("/colors", HTTP_GET, handleColors);
   server.on("/identify", HTTP_GET, handleIdentify);
+  // POST est utilise par le Manager afin que le mot de passe Wi-Fi
+  // ne soit pas place dans l'URL. GET reste accepte pour compatibilite.
+  server.on("/config", HTTP_POST, handleConfig);
   server.on("/config", HTTP_GET, handleConfig);
   server.on("/reboot", HTTP_GET, handleReboot);
 
