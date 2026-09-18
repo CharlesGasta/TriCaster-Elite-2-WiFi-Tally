@@ -24,6 +24,24 @@ jobs:
           PY
           node --check /tmp/tally-manager.js
 
+  manager-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Manager EXE
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --clean --onefile --console --name TriCaster_Elite2_Tally_Manager_V4 TriCaster_Elite2_Tally_Manager.py
+      - name: Upload Manager EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: TriCaster_Elite2_Tally_Manager_V4_Windows
+          path: dist/TriCaster_Elite2_Tally_Manager_V4.exe
+          if-no-files-found: error
+
   esp8266-firmware:
     runs-on: ubuntu-latest
     steps:
