@@ -65,6 +65,101 @@ Pour l'installation complète :
 
 > Pour un ruban plus long ou une puissance plus élevée, utilisez des MOSFET/transistors ou un driver LED adapté. Ne faites pas passer une charge importante directement par les sorties de l'ESP8266.
 
+## Réseau Wi-Fi, roaming et installations multi-points d'accès
+
+Le firmware prend en charge **un nombre quelconque de points d'accès Wi-Fi** diffusant le même réseau. Il n'est pas limité à 2 AP : une installation avec **3, 4, 5, 6 AP ou davantage** fonctionne avec la même logique.
+
+### Architecture recommandée
+
+```text
+                         ┌── AP 1 ))))
+TriCaster ── Switch/LAN ─┼── AP 2 ))))
+                         ├── AP 3 ))))
+                         ├── AP 4 ))))
+                         └── AP N ))))
+```
+
+Tous les points d'accès doivent appartenir au **même LAN / même sous-réseau IP** que le TriCaster et les tally.
+
+Pour chaque AP :
+
+- mode **Access Point / Bridge**
+- liaison montante **Ethernet filaire** recommandée
+- **même SSID**
+- **même mot de passe**
+- **même mode de sécurité** ; WPA2-PSK est recommandé pour la compatibilité ESP8266
+- pas de NAT sur les AP secondaires
+- pas de serveur DHCP supplémentaire ; un seul équipement du réseau doit assurer le DHCP
+- les AP peuvent être de marques différentes si ces règles sont respectées
+- le 802.11r/k/v n'est pas nécessaire : le firmware ESP8266 gère lui-même la sélection du meilleur BSSID
+
+Évitez le mode répéteur Wi-Fi ou un backhaul radio lorsque vous pouvez tirer un câble Ethernet. Pour une production critique, le **backhaul filaire** est nettement préférable.
+
+### Plan de canaux 2,4 GHz
+
+Utilisez une largeur de canal de **20 MHz** et privilégiez les canaux non chevauchants **1, 6 et 11**.
+
+Exemple pour six AP :
+
+| AP | Canal |
+|---|---:|
+| AP 1 | 1 |
+| AP 2 | 6 |
+| AP 3 | 11 |
+| AP 4 | 1 |
+| AP 5 | 6 |
+| AP 6 | 11 |
+
+À partir du 4e AP, réutilisez les canaux en espaçant physiquement autant que possible deux AP utilisant le même canal. Le but est d'éviter que deux cellules voisines émettent sur la même fréquence.
+
+Dans un lieu très grand, une puissance maximale sur tous les AP n'est pas toujours idéale. Commencez avec une puissance adaptée à la zone à couvrir ; si les cellules se chevauchent fortement, réduisez la puissance afin de garder des zones radio distinctes.
+
+### Roaming automatique des tally
+
+Chaque point d'accès possède un **BSSID** différent, même lorsqu'ils diffusent tous le même SSID. L'ESP8266 garde son IP et choisit automatiquement le BSSID le plus approprié.
+
+Paramètres par défaut :
+
+```cpp
+const int ROAM_RSSI_TRIGGER = -70;       // recherche seulement si l'AP courant devient faible
+const int ROAM_MIN_GAIN = 8;             // nouvel AP au moins 8 dB meilleur
+const unsigned long ROAM_COOLDOWN = 15000;
+```
+
+Ainsi, un tally ne change pas d'AP simplement parce qu'un autre est 1 ou 2 dB meilleur. Il reste sur son AP tant que la liaison est correcte, ce qui évite l'effet « yoyo » dans les zones de recouvrement.
+
+Exemple :
+
+```text
+AP actuel : -73 dBm
+AP voisin : -61 dBm
+→ bascule automatique
+
+AP actuel : -71 dBm
+AP voisin : -67 dBm
+→ aucune bascule
+```
+
+Pendant un roaming volontaire, le changement d'AP est **invisible pour le cadreur** : l'ESP conserve le dernier état PROGRAM / PREVIEW / OFF jusqu'à la reprise des données TriCaster.
+
+### Signification des indications réseau
+
+- 🔵 **bleu fixe** : réseau Wi-Fi recherché / hors couverture
+- 🔵 **bleu clignotant** : réseau trouvé, association Wi-Fi en cours
+- 🟡 **jaune** : Wi-Fi connecté mais communication avec le TriCaster perdue
+- lors d'un roaming volontaire vers un meilleur AP : **aucune indication de panne**, le dernier tally reste affiché
+
+Le statut HTTP/heartbeat expose également :
+
+```text
+rssi
+bssid
+channel
+wifi_state
+```
+
+Ces informations permettent au Manager d'indiquer le point d'accès utilisé par chaque tally et de contrôler la couverture d'une installation multi-AP.
+
 ## Boîtier 3D et fixation caméra
 
 Le modèle 3D du boîtier et les informations d'impression sont disponibles sur Thingiverse :
@@ -424,6 +519,78 @@ Overall system:
 - 1 × **TriCaster Elite 2**
 - LAN with 2.4 GHz Wi-Fi
 - optional Windows computer, or the TriCaster itself, for the Manager
+
+## Wi-Fi network, roaming and multi-AP deployments
+
+The firmware supports **any number of Wi-Fi access points** broadcasting the same network. It is not limited to two APs: deployments with **3, 4, 5, 6 or more APs** use the same roaming logic.
+
+Recommended topology:
+
+```text
+                         ┌── AP 1 ))))
+TriCaster ── Switch/LAN ─┼── AP 2 ))))
+                         ├── AP 3 ))))
+                         ├── AP 4 ))))
+                         └── AP N ))))
+```
+
+All APs must be on the **same Layer-2 LAN / IP subnet** as the TriCaster and tally units.
+
+Configure every AP with:
+
+- **Access Point / Bridge** mode
+- preferably a **wired Ethernet backhaul**
+- the **same SSID**
+- the **same password**
+- the **same security mode**; WPA2-PSK is recommended for ESP8266 compatibility
+- no NAT on secondary APs
+- no additional DHCP server; use one DHCP server for the LAN
+- different AP brands are acceptable when these requirements are met
+- 802.11r/k/v is not required; the ESP8266 firmware performs its own BSSID selection
+
+For production use, wired backhaul is strongly preferred over wireless repeater/mesh backhaul.
+
+### 2.4 GHz channel plan
+
+Use **20 MHz** channel width and the non-overlapping channels **1, 6 and 11**.
+
+For six APs, a typical plan is:
+
+| AP | Channel |
+|---|---:|
+| AP 1 | 1 |
+| AP 2 | 6 |
+| AP 3 | 11 |
+| AP 4 | 1 |
+| AP 5 | 6 |
+| AP 6 | 11 |
+
+From the fourth AP onward, reuse channels only with as much physical separation as practical between APs sharing the same channel.
+
+### Automatic roaming
+
+Every AP has a different **BSSID**, even when all APs use the same SSID. The tally keeps its IP address and automatically selects a better BSSID when necessary.
+
+Default roaming parameters:
+
+```cpp
+const int ROAM_RSSI_TRIGGER = -70;
+const int ROAM_MIN_GAIN = 8;
+const unsigned long ROAM_COOLDOWN = 15000;
+```
+
+The tally therefore stays on its current AP while the link remains usable and only moves when another AP is clearly better, preventing ping-pong roaming in overlap areas.
+
+During intentional roaming, the switch is **invisible to the camera operator**: the last PROGRAM / PREVIEW / OFF state remains displayed until TriCaster polling resumes.
+
+Network indications:
+
+- 🔵 **solid blue**: searching for the Wi-Fi network / out of coverage
+- 🔵 **blinking blue**: network found, Wi-Fi association in progress
+- 🟡 **yellow**: Wi-Fi is connected but TriCaster communication is lost
+- intentional roaming: no fault indication; the previous tally state is held
+
+The status/heartbeat payload also includes `rssi`, `bssid`, `channel` and `wifi_state` for multi-AP diagnostics.
 
 ## 3D-printed enclosure and camera mounting
 
