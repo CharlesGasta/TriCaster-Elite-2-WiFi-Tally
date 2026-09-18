@@ -7,7 +7,7 @@
 // =====================================================
 // TRICASTER ELITE 2 WIFI TALLY - ESP8266
 // Modifier uniquement ce numéro avant le premier flash.
-// 1 = 10.15.10.81, 2 = .82, ... 8 = .88
+// Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
 
@@ -25,6 +25,15 @@ const unsigned long POLL_INTERVAL = 250;
 const unsigned long TALLY_TIMEOUT = 2000;
 const unsigned long HEARTBEAT_INTERVAL = 1000;
 const unsigned long IDENTIFY_DURATION = 5000;
+
+// Roaming Wi-Fi entre plusieurs points d'acces utilisant le meme SSID.
+// Le scan ne se lance que si le signal devient faible afin de ne pas
+// perturber inutilement le polling tally.
+const int ROAM_RSSI_TRIGGER = -70;               // dBm : commencer a chercher un meilleur AP
+const int ROAM_MIN_GAIN = 8;                     // dB  : gain minimum avant de basculer
+const unsigned long ROAM_SCAN_INTERVAL = 10000; // ms  : intervalle entre deux verifications
+const unsigned long ROAM_COOLDOWN = 15000;      // ms  : evite les bascules aller/retour
+const unsigned long ROAM_CONNECT_TIMEOUT = 8000;// ms  : abandon d'une tentative de roaming
 
 struct Config {
   uint32_t magic;
@@ -48,6 +57,10 @@ unsigned long identifyStart = 0;
 unsigned long lastPoll = 0;
 unsigned long lastGoodTally = 0;
 unsigned long lastHeartbeat = 0;
+unsigned long lastRoamCheck = 0;
+unsigned long lastRoamAt = 0;
+bool roamScanRunning = false;
+bool roamInProgress = false;
 
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -132,6 +145,13 @@ void startupAnimation() {
 
 void updateLED() {
   if (identifyActive) return;
+
+  // Bleu pendant une perte Wi-Fi ou une bascule entre deux points d'acces.
+  if (WiFi.status() != WL_CONNECTED || roamInProgress) {
+    setRGBPWM(0, 0, 255);
+    return;
+  }
+
   if (currentState == STATE_PROGRAM) setRGBPWM(config.pgmR, config.pgmG, config.pgmB);
   else if (currentState == STATE_PREVIEW) setRGBPWM(config.prevR, config.prevG, config.prevB);
   else if (currentState == STATE_ERROR) setRGBPWM(255, 160, 0);
@@ -164,6 +184,8 @@ String statusJSON() {
   json += "\"camera\":" + String(config.camera) + ",";
   json += "\"state\":\"" + stateName() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  json += "\"bssid\":\"" + WiFi.BSSIDstr() + "\",";
+  json += "\"channel\":" + String(WiFi.channel()) + ",";
   json += "\"brightness\":" + String(config.brightness) + ",";
   json += "\"pgm\":[" + String(config.pgmR) + "," + String(config.pgmG) + "," + String(config.pgmB) + "],";
   json += "\"preview\":[" + String(config.prevR) + "," + String(config.prevG) + "," + String(config.prevB) + "]";
@@ -323,14 +345,133 @@ void setupRoutes() {
   server.begin();
 }
 
+String formatBSSID(const uint8_t* bssid) {
+  char buffer[18];
+  snprintf(buffer, sizeof(buffer), "%02X:%02X:%02X:%02X:%02X:%02X",
+           bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+  return String(buffer);
+}
+
+bool sameBSSID(const uint8_t* a, const uint8_t* b) {
+  if (!a || !b) return false;
+  for (int i = 0; i < 6; i++) if (a[i] != b[i]) return false;
+  return true;
+}
+
+void startRoamScan() {
+  if (roamScanRunning || roamInProgress || WiFi.status() != WL_CONNECTED) return;
+
+  Serial.println("[WIFI] RSSI faible (" + String(WiFi.RSSI()) + " dBm) -> scan roaming");
+  int result = WiFi.scanNetworks(true, false);
+  if (result == WIFI_SCAN_RUNNING || result >= 0) {
+    roamScanRunning = true;
+  } else {
+    Serial.println("[WIFI] Impossible de demarrer le scan roaming");
+    WiFi.scanDelete();
+  }
+}
+
+void processRoamScan(unsigned long now) {
+  if (!roamScanRunning) return;
+
+  int count = WiFi.scanComplete();
+  if (count == WIFI_SCAN_RUNNING) return;
+
+  roamScanRunning = false;
+
+  if (count < 0 || WiFi.status() != WL_CONNECTED) {
+    WiFi.scanDelete();
+    return;
+  }
+
+  int currentRssi = WiFi.RSSI();
+  uint8_t currentBssid[6];
+  const uint8_t* connectedBssid = WiFi.BSSID();
+  if (!connectedBssid) {
+    WiFi.scanDelete();
+    return;
+  }
+  memcpy(currentBssid, connectedBssid, 6);
+
+  int bestIndex = -1;
+  int bestRssi = currentRssi;
+
+  for (int i = 0; i < count; i++) {
+    if (WiFi.SSID(i) != WIFI_SSID) continue;
+
+    const uint8_t* candidateBssid = WiFi.BSSID(i);
+    if (!candidateBssid || sameBSSID(candidateBssid, currentBssid)) continue;
+
+    int candidateRssi = WiFi.RSSI(i);
+    if (candidateRssi > bestRssi) {
+      bestRssi = candidateRssi;
+      bestIndex = i;
+    }
+  }
+
+  if (bestIndex >= 0 && bestRssi >= currentRssi + ROAM_MIN_GAIN) {
+    uint8_t bestBssid[6];
+    memcpy(bestBssid, WiFi.BSSID(bestIndex), 6);
+    int32_t bestChannel = WiFi.channel(bestIndex);
+    String targetBssid = formatBSSID(bestBssid);
+
+    Serial.println("[WIFI] Roaming " + WiFi.BSSIDstr() + " (" + String(currentRssi) +
+                   " dBm) -> " + targetBssid + " (" + String(bestRssi) +
+                   " dBm), canal " + String(bestChannel));
+
+    WiFi.scanDelete();
+
+    roamInProgress = true;
+    lastRoamAt = now;
+    setRGBPWM(0, 0, 255);
+
+    WiFi.disconnect(false);
+    delay(10);
+    WiFi.config(savedIP(), gateway, subnet, dns);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
+    return;
+  }
+
+  if (bestIndex >= 0) {
+    Serial.println("[WIFI] Meilleur AP seulement +" + String(bestRssi - currentRssi) +
+                   " dB -> pas de bascule");
+  } else {
+    Serial.println("[WIFI] Aucun meilleur AP avec le meme SSID");
+  }
+
+  WiFi.scanDelete();
+}
+
+void handleRoaming(unsigned long now) {
+  if (roamScanRunning) {
+    processRoamScan(now);
+    return;
+  }
+
+  if (roamInProgress) return;
+  if (now - lastRoamAt < ROAM_COOLDOWN) return;
+  if (now - lastRoamCheck < ROAM_SCAN_INTERVAL) return;
+
+  lastRoamCheck = now;
+
+  if (WiFi.RSSI() <= ROAM_RSSI_TRIGGER) {
+    startRoamScan();
+  }
+}
+
 void connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
   WiFi.config(savedIP(), gateway, subnet, dns);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     setRGBPWM(0, 0, 255); delay(180); ledsOff(); delay(180); yield();
   }
+
+  Serial.println("[WIFI] Connecte a " + WiFi.BSSIDstr() +
+                 " / canal " + String(WiFi.channel()) +
+                 " / RSSI " + String(WiFi.RSSI()) + " dBm");
 }
 
 void setup() {
@@ -353,24 +494,50 @@ void loop() {
     else if ((now / 120) % 2) setRGBPWM(255,255,255); else setRGBPWM(255,0,255);
   }
   if (WiFi.status() != WL_CONNECTED) {
-    currentState = STATE_ERROR; updateLED();
-    static unsigned long lastReconnect = 0;
-    if (now - lastReconnect > 5000) { lastReconnect = now; WiFi.disconnect(); WiFi.config(savedIP(), gateway, subnet, dns); WiFi.begin(WIFI_SSID, WIFI_PASSWORD); }
-  } else {
-    if (now - lastPoll >= POLL_INTERVAL) {
-      lastPoll = now;
-      readTriCaster();
+    if (roamInProgress && now - lastRoamAt > ROAM_CONNECT_TIMEOUT) {
+      roamInProgress = false;
+      Serial.println("[WIFI] Roaming timeout -> reconnexion normale");
     }
 
-    if (millis() - lastGoodTally > TALLY_TIMEOUT && currentState != STATE_ERROR) {
-      currentState = STATE_ERROR;
-      Serial.println("[TALLY] Perte des donnees TriCaster -> error");
+    currentState = STATE_ERROR;
+    updateLED();
+
+    static unsigned long lastReconnect = 0;
+    if (now - lastReconnect > 5000) {
+      lastReconnect = now;
+      WiFi.disconnect();
+      WiFi.config(savedIP(), gateway, subnet, dns);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
+  } else {
+    if (roamInProgress) {
+      roamInProgress = false;
+      lastGoodTally = now;
+      Serial.println("[WIFI] Roaming termine -> " + WiFi.BSSIDstr() +
+                     " / canal " + String(WiFi.channel()) +
+                     " / RSSI " + String(WiFi.RSSI()) + " dBm");
       updateLED();
     }
 
-    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-      lastHeartbeat = now;
-      sendHeartbeat();
+    handleRoaming(now);
+
+    // handleRoaming() peut lancer une bascule et couper momentanement le Wi-Fi.
+    if (WiFi.status() == WL_CONNECTED) {
+      if (now - lastPoll >= POLL_INTERVAL) {
+        lastPoll = now;
+        readTriCaster();
+      }
+
+      if (millis() - lastGoodTally > TALLY_TIMEOUT && currentState != STATE_ERROR) {
+        currentState = STATE_ERROR;
+        Serial.println("[TALLY] Perte des donnees TriCaster -> error");
+        updateLED();
+      }
+
+      if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+        lastHeartbeat = now;
+        sendHeartbeat();
+      }
     }
   }
 
