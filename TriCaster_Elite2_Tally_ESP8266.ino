@@ -12,7 +12,7 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
-#define FIRMWARE_VERSION "4.1.0"
+#define FIRMWARE_VERSION "4.1.1"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
@@ -345,6 +345,7 @@ String statusJSON() {
   json += "\"name\":\"" + jsonEscape(String(config.name)) + "\",";
   json += "\"firmware\":\"" + String(FIRMWARE_VERSION) + "\",";
   json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"static_ip\":\"" + savedIP().toString() + "\",";
   json += "\"dhcp\":" + String(config.dhcp ? "true" : "false") + ",";
   json += "\"gateway\":\"" + WiFi.gatewayIP().toString() + "\",";
   json += "\"subnet\":\"" + WiFi.subnetMask().toString() + "\",";
