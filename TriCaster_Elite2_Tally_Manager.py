@@ -33,6 +33,7 @@ PREFLIGHT_LATENCY_FAIL = 1000
 APP_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 CONFIG_FILE = APP_DIR / "tally_manager_config.json"
 EVENT_LOG_FILE = APP_DIR / "tally_manager_events.csv"
+EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 devices = {}
 devices_lock = threading.Lock()
@@ -109,6 +110,14 @@ def log_event(event_type, tally="", details="", level="INFO"):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     row = [timestamp, str(level), str(event_type), str(tally), str(details)]
     with event_log_lock:
+        if EVENT_LOG_FILE.exists() and EVENT_LOG_FILE.stat().st_size >= EVENT_LOG_MAX_BYTES:
+            rotated = EVENT_LOG_FILE.with_name("tally_manager_events_previous.csv")
+            try:
+                if rotated.exists():
+                    rotated.unlink()
+                EVENT_LOG_FILE.replace(rotated)
+            except OSError:
+                pass
         new_file = not EVENT_LOG_FILE.exists()
         with EVENT_LOG_FILE.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
@@ -282,7 +291,7 @@ def wait_for_ota_recovery(name, old_uptime, started_at, timeout=OTA_VERIFY_TIMEO
                 new_uptime = int(info.get("uptime_ms") or 0)
                 reboot_seen = (
                     (old_uptime and new_uptime < old_uptime)
-                    or (not old_uptime and time.time() - started_at >= 4.0)
+                    or (time.time() - started_at >= 4.0 and new_uptime < 15000)
                 )
                 healthy = (
                     str(info.get("wifi_state") or "") == "connected"
@@ -400,7 +409,7 @@ async function refreshManagerState(){
   try{
     const r=await fetch('/manager-state',{cache:'no-store'}),s=await r.json();
     managerState=s;productionMode=!!s.production_mode;
-    document.getElementById('expectedCount').value=s.expected_tally_count??0;
+    if(document.activeElement!==document.getElementById('expectedCount'))document.getElementById('expectedCount').value=s.expected_tally_count??0;
     const b=document.getElementById('lockButton'),label=document.getElementById('lockLabel'),help=document.getElementById('lockHelp');
     if(productionMode){
       b.textContent='DÉVERROUILLER';b.className='lock-on';label.textContent='🔒 MODE PRODUCTION ACTIF';
@@ -691,7 +700,7 @@ def offline_monitor():
         with devices_lock:
             for name, device in devices.items():
                 last_seen = float(device.get("last_seen", 0) or 0)
-                if last_seen and now - last_seen > OFFLINE_AFTER and not device.get("_offline_logged"):
+                if last_seen and now - last_seen > OFFLINE_AFTER and not device.get("_offline_logged") and not device.get("_ota_in_progress"):
                     device["_offline_logged"] = True
                     to_log.append((name, str(device.get("ip") or "")))
 
@@ -1055,6 +1064,10 @@ class Handler(BaseHTTPRequestHandler):
             old_fw = str(device.get("firmware") or "?")
             started_at = time.time()
 
+            with devices_lock:
+                if name in devices:
+                    devices[name]["_ota_in_progress"] = True
+
             try:
                 log_event("OTA_START", name, f"{index}/{len(target_names)} - {ip} - FW {old_fw}", "WARNING")
                 push_ota(ip, firmware)
@@ -1074,7 +1087,14 @@ class Handler(BaseHTTPRequestHandler):
                 failures.append(f"{name}: {detail}")
                 log_event("OTA_FAILED", name, detail, "ERROR")
                 if stop_on_failure:
+                    with devices_lock:
+                        if name in devices:
+                            devices[name]["_ota_in_progress"] = False
                     break
+            finally:
+                with devices_lock:
+                    if name in devices:
+                        devices[name]["_ota_in_progress"] = False
 
         stopped_early = bool(failures and stop_on_failure and len(successes) + len(failures) < len(target_names))
         message = f"OTA verifiee : {len(successes)}/{len(target_names)} tally valides."
