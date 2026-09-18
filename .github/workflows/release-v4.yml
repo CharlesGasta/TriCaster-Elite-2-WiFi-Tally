@@ -82,7 +82,7 @@ jobs:
           - README.md : documentation
 
           Passage vers V4.1:
-          - - Depuis V4.0, cette V4.1 peut etre envoyee directement par OTA.
+          - Depuis V4.0, cette V4.1 peut etre envoyee directement par OTA.
           - Les ESP encore sur une version sans OTA doivent etre flashes une derniere fois par USB.
 
           Demarrage automatique Windows:
@@ -108,7 +108,7 @@ jobs:
           Existing Windows startup tasks can remain unchanged if the replacement EXE
           is copied to the same path using exactly the same filename as the previous executable.
           EOF
-      - name: Create or update V4 release
+      - name: Create or update V4.1 release
         run: |
           if gh release view v4.1.0 >/dev/null 2>&1; then
             gh release upload v4.1.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4_1.bin               TriCaster_Elite2_WiFi_Tally_V4_1_COMPLETE.zip               --clobber
