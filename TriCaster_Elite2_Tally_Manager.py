@@ -5,6 +5,7 @@ network configuration and fleet OTA updates.
 """
 
 import base64
+import hmac
 import json
 import os
 import socket
@@ -237,6 +238,21 @@ def esp_get(ip, path, timeout=1.0, token=None):
         return response.read().decode("utf-8", errors="replace")
 
 
+def esp_post_form(ip, path, params, timeout=2.0, token=None):
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://{ip}{path}",
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": basic_auth_header(token),
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
 def push_ota(ip, firmware, token=None, timeout=25.0):
     boundary = "----TallyManagerOTA" + str(int(time.time() * 1000))
     prefix = (
@@ -308,30 +324,81 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def manager_authorized(self):
+        received = self.headers.get("Authorization", "")
+        expected = basic_auth_header()
+        return hmac.compare_digest(received, expected)
+
+    def require_manager_auth(self):
+        if self.manager_authorized():
+            return True
+
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="TriCaster Tally Manager"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
+        if not self.require_manager_auth():
+            return
+
         parsed = urllib.parse.urlparse(self.path)
+
         if parsed.path in ("/", "/mobile", "/mobile/"):
             self.send_text(200, PAGE, "text/html")
             return
+
         if parsed.path == "/devices":
             now = time.time()
+            with config_lock:
+                aliases = dict(manager_config.get("ap_aliases", {}))
+
             with devices_lock:
                 result = []
                 for name, device in sorted(devices.items()):
                     item = dict(device)
                     item["online"] = (now - item.get("last_seen", 0)) <= OFFLINE_AFTER
+                    bssid = str(item.get("bssid") or "")
+                    item["ap_name"] = aliases.get(bssid, "")
                     result.append(item)
-            self.send_text(200, json.dumps(result), "application/json")
+
+            self.send_text(200, json.dumps(result, ensure_ascii=False), "application/json")
             return
+
         if parsed.path == "/api":
             q = urllib.parse.parse_qs(parsed.query)
-            name, action = q.get("name", [""])[0], q.get("action", [""])[0]
+            name = q.get("name", [""])[0]
+            action = q.get("action", [""])[0]
+
+            if action == "ap_alias":
+                with devices_lock:
+                    device = dict(devices.get(name, {}))
+                bssid = str(device.get("bssid") or "").strip()
+                if not bssid:
+                    self.send_text(400, "BSSID indisponible", "text/plain")
+                    return
+
+                alias = q.get("alias", [""])[0].strip()
+                with config_lock:
+                    aliases = manager_config.setdefault("ap_aliases", {})
+                    if alias:
+                        aliases[bssid] = alias
+                    else:
+                        aliases.pop(bssid, None)
+                save_manager_config()
+                self.send_text(200, "OK", "text/plain")
+                return
+
             with devices_lock:
                 device = dict(devices.get(name, {}))
+
             if not device or not device.get("ip"):
                 self.send_text(404, "Tally inconnu", "text/plain")
                 return
+
             ip = device["ip"]
+
             try:
                 if action == "brightness":
                     value = max(1, min(100, int(q.get("value", ["100"])[0])))
@@ -339,49 +406,156 @@ class Handler(BaseHTTPRequestHandler):
                     with devices_lock:
                         if name in devices:
                             devices[name]["brightness"] = value
+
                 elif action == "identify":
                     esp_get(ip, "/identify")
+
                 elif action == "reboot":
                     try:
                         esp_get(ip, "/reboot")
                     except Exception:
+                        # La socket peut etre fermee pendant le redemarrage.
                         pass
+
                 elif action == "config":
                     new_name = q.get("new_name", [""])[0].strip()
+                    ssid = q.get("ssid", [""])[0].strip()
+                    wifi_password = q.get("wifi_password", [""])[0]
+                    dhcp = q.get("dhcp", ["0"])[0] == "1"
                     new_ip = q.get("new_ip", [""])[0].strip()
-                    tricaster = q.get("tricaster", ["192.168.1.50"])[0].strip()
+                    gateway = q.get("gateway", [""])[0].strip()
+                    subnet = q.get("subnet", [""])[0].strip()
+                    dns = q.get("dns", [""])[0].strip()
+                    tricaster = q.get("tricaster", [""])[0].strip()
+
                     if not new_name or len(new_name) > 31:
-                        raise ValueError("nom invalide (1 à 31 caractères)")
+                        raise ValueError("nom invalide (1 a 31 caracteres)")
+                    if len(ssid) > 32:
+                        raise ValueError("SSID invalide")
+                    if not tricaster:
+                        raise ValueError("IP TriCaster obligatoire")
+
                     try:
-                        socket.inet_aton(new_ip)
                         socket.inet_aton(tricaster)
+                        if not dhcp:
+                            socket.inet_aton(new_ip)
+                            socket.inet_aton(gateway)
+                            socket.inet_aton(subnet)
+                            socket.inet_aton(dns)
                     except OSError:
                         raise ValueError("adresse IP invalide")
-                    params = {"name": new_name, "ip": new_ip, "tricaster": tricaster}
-                    esp_get(ip, "/config?" + urllib.parse.urlencode(params), timeout=2.0)
+
+                    params = {
+                        "name": new_name,
+                        "ssid": ssid,
+                        "wifi_password": wifi_password,
+                        "dhcp": "1" if dhcp else "0",
+                        "ip": new_ip,
+                        "gateway": gateway,
+                        "subnet": subnet,
+                        "dns": dns,
+                        "tricaster": tricaster
+                    }
+
+                    esp_post_form(ip, "/config", params, timeout=3.0)
+
                     with devices_lock:
                         if name in devices:
                             updated = devices.pop(name)
                             updated["name"] = new_name
-                            updated["ip"] = new_ip
+                            if not dhcp and new_ip:
+                                updated["ip"] = new_ip
                             updated["last_seen"] = 0
                             devices[new_name] = updated
+
                 elif action == "save":
-                    camera = max(1, min(16, int(q.get("camera", ["1"])[0])))
+                    camera = max(1, min(32, int(q.get("camera", ["1"])[0])))
                     pgm = hex_to_rgb(q.get("pgm", ["#ff0000"])[0])
                     prev = hex_to_rgb(q.get("preview", ["#00ff00"])[0])
+
                     esp_get(ip, "/camera?" + urllib.parse.urlencode({"value": camera}))
-                    params = {"pr": pgm[0], "pg": pgm[1], "pb": pgm[2], "vr": prev[0], "vg": prev[1], "vb": prev[2]}
+
+                    params = {
+                        "pr": pgm[0], "pg": pgm[1], "pb": pgm[2],
+                        "vr": prev[0], "vg": prev[1], "vb": prev[2]
+                    }
                     esp_get(ip, "/colors?" + urllib.parse.urlencode(params))
                     refresh_device_details(ip, name)
+
                 else:
                     self.send_text(400, "Action inconnue", "text/plain")
                     return
+
                 self.send_text(200, "OK", "text/plain")
+
             except Exception as error:
                 self.send_text(502, f"Erreur communication ESP: {error}", "text/plain")
+
             return
+
         self.send_text(404, "Not found", "text/plain")
+
+    def do_POST(self):
+        if not self.require_manager_auth():
+            return
+
+        parsed = urllib.parse.urlparse(self.path)
+
+        if parsed.path != "/ota-upload":
+            self.send_text(404, "Not found", "text/plain")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+
+        if length <= 0 or length > MAX_OTA_SIZE:
+            self.send_text(400, "Taille firmware invalide", "text/plain")
+            return
+
+        firmware = self.rfile.read(length)
+
+        if not firmware or firmware[0] != 0xE9:
+            self.send_text(
+                400,
+                "Le fichier ne ressemble pas a un firmware ESP8266 .bin valide (magic 0xE9 absent).",
+                "text/plain"
+            )
+            return
+
+        now = time.time()
+        with devices_lock:
+            targets = [
+                (name, str(device.get("ip")))
+                for name, device in devices.items()
+                if device.get("ip") and (now - device.get("last_seen", 0)) <= OFFLINE_AFTER
+            ]
+
+        if not targets:
+            self.send_text(400, "Aucun tally connecte a mettre a jour.", "text/plain")
+            return
+
+        successes = []
+        failures = []
+
+        for name, ip in sorted(targets):
+            try:
+                push_ota(ip, firmware)
+                successes.append(name)
+                print(f"[OTA] {name} ({ip}) : firmware envoye")
+            except Exception as error:
+                failures.append(f"{name}: {error}")
+                print(f"[OTA] {name} ({ip}) : ECHEC - {error}")
+
+            # L'ESP redemarre apres la mise a jour. On espace legerement les envois.
+            time.sleep(0.25)
+
+        message = f"OTA terminee : {len(successes)}/{len(targets)} tally mis a jour."
+        if failures:
+            message += " Echecs : " + " | ".join(failures)
+
+        self.send_text(200 if not failures else 207, message, "text/plain")
 
 def get_local_ip():
     try:
@@ -402,16 +576,19 @@ def get_local_ip():
         probe.close()
 
 def main():
+    load_manager_config()
     threading.Thread(target=udp_listener, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)
     local_ip = get_local_ip()
     print()
     print("====================================")
-    print("   TRICASTER ELITE 2 TALLY MANAGER V3 - MULTI-AP")
+    print("   TRICASTER ELITE 2 TALLY MANAGER V4")
     print("====================================")
     print(f"PC local          : http://127.0.0.1:{HTTP_PORT}")
     print(f"TÉLÉPHONE (Wi-Fi) : http://{local_ip}:{HTTP_PORT}/mobile")
     print("Le téléphone et le PC doivent être sur le même réseau.")
+    print(f"Configuration     : {CONFIG_FILE}")
+    print("Authentification  : utilisateur admin + token API configure")
     print("CTRL+C pour arrêter.")
     print()
     try:
