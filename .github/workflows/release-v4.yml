@@ -1,4 +1,4 @@
-name: Publish V4 Release
+name: Publish V4.1 Release
 
 on:
   push:
@@ -44,11 +44,11 @@ jobs:
           mkdir -p /tmp/TriCasterTally build
           cp TriCaster_Elite2_Tally_ESP8266.ino /tmp/TriCasterTally/TriCasterTally.ino
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir "$GITHUB_WORKSPACE/build" /tmp/TriCasterTally
-          cp build/TriCasterTally.ino.bin build/TriCaster_Elite2_Tally_ESP8266_V4.bin
+          cp build/TriCasterTally.ino.bin build/TriCaster_Elite2_Tally_ESP8266_V4_1.bin
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-release
-          path: build/TriCaster_Elite2_Tally_ESP8266_V4.bin
+          path: build/TriCaster_Elite2_Tally_ESP8266_V4_1.bin
           if-no-files-found: error
 
   release:
@@ -72,46 +72,46 @@ jobs:
           cp TriCaster_Elite2_Tally_ESP8266.ino release/
           cp README.md release/
           cat > release/LISEZ-MOI.txt <<'EOF'
-          TriCaster Elite 2 WiFi Tally V4.0.0
+          TriCaster Elite 2 WiFi Tally V4.1.0
 
           Fichiers principaux:
           - TriCaster_Elite2_Tally_Manager.exe : Manager Windows
-          - TriCaster_Elite2_Tally_ESP8266_V4.bin : firmware ESP8266
+          - TriCaster_Elite2_Tally_ESP8266_V4_1.bin : firmware ESP8266
           - TriCaster_Elite2_Tally_Manager.py : source Manager
           - TriCaster_Elite2_Tally_ESP8266.ino : source Arduino
           - README.md : documentation
 
-          Premier passage vers V4:
-          - Les anciens ESP sans OTA doivent etre flashes une derniere fois par USB.
-          - Ensuite les mises a jour peuvent etre envoyees depuis le Manager.
+          Passage vers V4.1:
+          - - Depuis V4.0, cette V4.1 peut etre envoyee directement par OTA.
+          - Les ESP encore sur une version sans OTA doivent etre flashes une derniere fois par USB.
 
           Demarrage automatique Windows:
           - Si une tache planifiee pointe deja vers un nom et un chemin fixes,
             gardez exactement le meme nom de fichier et remplacez simplement l'ancien EXE.
           EOF
           cd release
-          zip -r ../TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip .
+          zip -r ../TriCaster_Elite2_WiFi_Tally_V4_1_COMPLETE.zip .
           cd ..
       - name: Release notes
         run: |
           cat > release_notes.md <<'EOF'
-          ## TriCaster Elite 2 WiFi Tally V4.0.0
+          ## TriCaster Elite 2 WiFi Tally V4.1.0
 
-          V4 adds multi-AP roaming, captive setup, DHCP/static IP configuration,
-          Manager diagnostics, authenticated administration and fleet OTA updates.
+          V4.1 adds production pre-flight checks, persistent Production Mode locking,
+          verified staged OTA deployments, persistent incident/event logs and the V4 multi-AP/network stack.
 
           ### Downloads
           - **TriCaster_Elite2_Tally_Manager.exe** — Windows Manager
-          - **TriCaster_Elite2_Tally_ESP8266_V4.bin** — ESP8266 firmware
-          - **TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip** — complete package
+          - **TriCaster_Elite2_Tally_ESP8266_V4_1.bin** — ESP8266 firmware
+          - **TriCaster_Elite2_WiFi_Tally_V4_1_COMPLETE.zip** — complete package
 
           Existing Windows startup tasks can remain unchanged if the replacement EXE
           is copied to the same path using exactly the same filename as the previous executable.
           EOF
       - name: Create or update V4 release
         run: |
-          if gh release view v4.0.0 >/dev/null 2>&1; then
-            gh release upload v4.0.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4.bin               TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip               --clobber
+          if gh release view v4.1.0 >/dev/null 2>&1; then
+            gh release upload v4.1.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4_1.bin               TriCaster_Elite2_WiFi_Tally_V4_1_COMPLETE.zip               --clobber
           else
-            gh release create v4.0.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4.bin               TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip               --target "$GITHUB_SHA"               --title "TriCaster Elite 2 WiFi Tally V4.0.0"               --notes-file release_notes.md               --latest
+            gh release create v4.1.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4_1.bin               TriCaster_Elite2_WiFi_Tally_V4_1_COMPLETE.zip               --target "$GITHUB_SHA"               --title "TriCaster Elite 2 WiFi Tally V4.1.0"               --notes-file release_notes.md               --latest
           fi
