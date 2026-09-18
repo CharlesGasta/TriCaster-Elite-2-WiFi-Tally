@@ -17,8 +17,8 @@
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
 // ou depuis le Tally Manager.
-const char* DEFAULT_WIFI_SSID = "YOUR_WIFI_SSID";
-const char* DEFAULT_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* DEFAULT_WIFI_SSID = "YOUR_config.ssid";
+const char* DEFAULT_WIFI_PASSWORD = "YOUR_config.wifiPassword";
 const char* DEFAULT_ADMIN_TOKEN = "CHANGE_ME";
 
 #define PIN_GREEN D1
@@ -164,8 +164,10 @@ void updateBroadcastIP() {
 }
 
 void applyNetworkConfig() {
-  if (!config.dhcp) {
-    WiFi.config(savedIP(), gatewayIP(), subnetIP(), dnsIP());
+  if (config.dhcp) {
+    WiFi.config(IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0));
+  } else {
+    applyNetworkConfig();
   }
 }
 
@@ -466,67 +468,335 @@ void sendHeartbeat() {
   udp.endPacket();
 }
 
-void handleStatus() { server.send(200, "application/json", statusJSON()); }
+void handleStatus() {
+  server.send(200, "application/json", statusJSON());
+}
+
+bool requireAdmin() {
+  if (strlen(config.adminToken) == 0) return true;
+
+  if (!server.authenticate("admin", config.adminToken)) {
+    server.requestAuthentication();
+    return false;
+  }
+
+  return true;
+}
+
+String htmlEscape(const String& value) {
+  String out;
+  out.reserve(value.length() + 16);
+
+  for (unsigned int i = 0; i < value.length(); i++) {
+    char ch = value[i];
+    if (ch == '&') out += "&amp;";
+    else if (ch == '<') out += "&lt;";
+    else if (ch == '>') out += "&gt;";
+    else if (ch == '"') out += "&quot;";
+    else if (ch == '\'') out += "&#39;";
+    else out += ch;
+  }
+
+  return out;
+}
+
+String setupPage() {
+  String page;
+  page.reserve(6000);
+
+  page += "<!doctype html><html lang='fr'><head><meta charset='utf-8'>";
+  page += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  page += "<title>Tally Wi-Fi Setup</title>";
+  page += "<style>body{font-family:Arial;background:#111;color:#eee;margin:0;padding:18px}";
+  page += ".box{max-width:640px;margin:auto;background:#202020;padding:18px;border-radius:12px}";
+  page += "h1{font-size:24px;margin-top:0}label{display:block;margin-top:12px;color:#bbb;font-size:13px}";
+  page += "input{width:100%;box-sizing:border-box;padding:10px;margin-top:4px;background:#111;color:#fff;border:1px solid #555;border-radius:7px}";
+  page += ".row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.check{display:flex;gap:8px;align-items:center;margin-top:14px}.check input{width:auto;margin:0}";
+  page += "button{width:100%;padding:12px;margin-top:18px;background:#2477d4;color:#fff;border:0;border-radius:8px;font-weight:bold}";
+  page += ".note{color:#aaa;font-size:12px;line-height:1.45}.warn{color:#f4bd52}</style></head><body><div class='box'>";
+  page += "<h1>TriCaster Tally - Configuration</h1>";
+  page += "<p class='note'>Firmware " + String(FIRMWARE_VERSION) + ". Laissez les champs Mot de passe Wi-Fi et Token vides pour conserver les valeurs deja enregistrees.</p>";
+  page += "<form method='POST' action='/setup-save'>";
+
+  page += "<label>Nom du tally</label><input name='name' maxlength='31' value='" + htmlEscape(String(config.name)) + "' required>";
+  page += "<label>SSID Wi-Fi 2,4 GHz</label><input name='ssid' maxlength='32' value='" + htmlEscape(String(config.ssid)) + "' required>";
+  page += "<label>Mot de passe Wi-Fi</label><input name='wifi_password' type='password' maxlength='64' placeholder='laisser vide pour conserver'>";
+
+  page += "<div class='check'><input id='dhcp' type='checkbox' name='dhcp' value='1'";
+  if (config.dhcp) page += " checked";
+  page += "><label for='dhcp' style='margin:0'>Utiliser DHCP</label></div>";
+
+  page += "<div class='row'>";
+  page += "<div><label>IP fixe</label><input name='ip' value='" + savedIP().toString() + "'></div>";
+  page += "<div><label>Gateway</label><input name='gateway' value='" + gatewayIP().toString() + "'></div>";
+  page += "<div><label>Subnet</label><input name='subnet' value='" + subnetIP().toString() + "'></div>";
+  page += "<div><label>DNS</label><input name='dns' value='" + dnsIP().toString() + "'></div>";
+  page += "</div>";
+
+  page += "<label>IP TriCaster</label><input name='tricaster' value='" + tricasterIP().toString() + "' required>";
+  page += "<label>Token administrateur</label><input name='admin_token' type='password' maxlength='32' placeholder='laisser vide pour conserver'>";
+  page += "<p class='note warn'>Utilisez le meme token dans le Tally Manager. Changez la valeur par defaut CHANGE_ME avant une utilisation sur un reseau partage.</p>";
+  page += "<button type='submit'>ENREGISTRER ET REDEMARRER</button></form></div></body></html>";
+
+  return page;
+}
+
+void handleSetupPage() {
+  if (!setupPortalActive && !requireAdmin()) return;
+  server.send(200, "text/html", setupPage());
+}
+
+void handleSetupSave() {
+  if (!setupPortalActive && !requireAdmin()) return;
+
+  String newName = server.arg("name");
+  String newSSID = server.arg("ssid");
+  String newPassword = server.arg("wifi_password");
+  String newToken = server.arg("admin_token");
+  bool newDhcp = server.hasArg("dhcp") && server.arg("dhcp") == "1";
+
+  IPAddress newIP, newGateway, newSubnet, newDNS, newTriCaster;
+
+  if (newName.length() < 1 || newName.length() > 31) {
+    server.send(400, "text/plain", "Nom invalide");
+    return;
+  }
+
+  if (newSSID.length() < 1 || newSSID.length() > 32) {
+    server.send(400, "text/plain", "SSID invalide");
+    return;
+  }
+
+  if (!parseIPv4(server.arg("tricaster"), newTriCaster)) {
+    server.send(400, "text/plain", "IP TriCaster invalide");
+    return;
+  }
+
+  if (!newDhcp) {
+    if (!parseIPv4(server.arg("ip"), newIP) ||
+        !parseIPv4(server.arg("gateway"), newGateway) ||
+        !parseIPv4(server.arg("subnet"), newSubnet) ||
+        !parseIPv4(server.arg("dns"), newDNS)) {
+      server.send(400, "text/plain", "Configuration IP statique invalide");
+      return;
+    }
+  }
+
+  newName.toCharArray(config.name, sizeof(config.name));
+  newSSID.toCharArray(config.ssid, sizeof(config.ssid));
+
+  if (newPassword.length() > 0) {
+    newPassword.toCharArray(config.wifiPassword, sizeof(config.wifiPassword));
+  }
+
+  if (newToken.length() > 0) {
+    newToken.toCharArray(config.adminToken, sizeof(config.adminToken));
+  }
+
+  config.dhcp = newDhcp;
+
+  if (!newDhcp) {
+    copyIP(config.ip, newIP);
+    copyIP(config.gateway, newGateway);
+    copyIP(config.subnet, newSubnet);
+    copyIP(config.dns, newDNS);
+  }
+
+  copyIP(config.tricaster, newTriCaster);
+  saveConfig();
+
+  server.send(200, "text/html",
+    "<!doctype html><html><body style='font-family:Arial;background:#111;color:#eee;padding:30px'>"
+    "<h2>Configuration enregistree</h2><p>Le tally redemarre...</p></body></html>");
+
+  delay(750);
+  ESP.restart();
+}
 
 void handleCamera() {
+  if (!requireAdmin()) return;
+
   int value = server.arg("value").toInt();
-  if (value < 1 || value > 32) { server.send(400, "text/plain", "Camera invalide"); return; }
-  config.camera = value; saveConfig();
+  if (value < 1 || value > 32) {
+    server.send(400, "text/plain", "Camera invalide");
+    return;
+  }
+
+  config.camera = value;
+  saveConfig();
   server.send(200, "text/plain", "OK");
 }
 
 void handleBrightness() {
+  if (!requireAdmin()) return;
+
   int value = constrain(server.arg("value").toInt(), 1, 100);
-  config.brightness = value; saveConfig(); updateLED();
+  config.brightness = value;
+  saveConfig();
+  updateLED();
   server.send(200, "text/plain", "OK");
 }
 
 void handleColors() {
+  if (!requireAdmin()) return;
+
   config.pgmR = constrain(server.arg("pr").toInt(), 0, 255);
   config.pgmG = constrain(server.arg("pg").toInt(), 0, 255);
   config.pgmB = constrain(server.arg("pb").toInt(), 0, 255);
   config.prevR = constrain(server.arg("vr").toInt(), 0, 255);
   config.prevG = constrain(server.arg("vg").toInt(), 0, 255);
   config.prevB = constrain(server.arg("vb").toInt(), 0, 255);
-  saveConfig(); updateLED();
+
+  saveConfig();
+  updateLED();
   server.send(200, "text/plain", "OK");
 }
 
 void handleIdentify() {
-  identifyActive = true; identifyStart = millis();
+  if (!requireAdmin()) return;
+
+  identifyActive = true;
+  identifyStart = millis();
   server.send(200, "text/plain", "OK");
 }
 
 void handleConfig() {
+  if (!requireAdmin()) return;
+
   String newName = server.arg("name");
-  IPAddress newIP, newTriCaster;
-  if (newName.length() < 1 || newName.length() > 31) { server.send(400, "text/plain", "Nom invalide"); return; }
-  if (!parseIPv4(server.arg("ip"), newIP) || !parseIPv4(server.arg("tricaster"), newTriCaster)) {
-    server.send(400, "text/plain", "Adresse IP invalide"); return;
+  String newSSID = server.arg("ssid");
+  String newPassword = server.arg("wifi_password");
+
+  bool newDhcp = server.arg("dhcp") == "1";
+
+  IPAddress newIP, newGateway, newSubnet, newDNS, newTriCaster;
+
+  if (newName.length() < 1 || newName.length() > 31) {
+    server.send(400, "text/plain", "Nom invalide");
+    return;
   }
+
+  if (newSSID.length() > 32) {
+    server.send(400, "text/plain", "SSID invalide");
+    return;
+  }
+
+  if (!parseIPv4(server.arg("tricaster"), newTriCaster)) {
+    server.send(400, "text/plain", "IP TriCaster invalide");
+    return;
+  }
+
+  if (!newDhcp) {
+    if (!parseIPv4(server.arg("ip"), newIP) ||
+        !parseIPv4(server.arg("gateway"), newGateway) ||
+        !parseIPv4(server.arg("subnet"), newSubnet) ||
+        !parseIPv4(server.arg("dns"), newDNS)) {
+      server.send(400, "text/plain", "Configuration IP statique invalide");
+      return;
+    }
+  }
+
   newName.toCharArray(config.name, sizeof(config.name));
-  copyIP(config.ip, newIP); copyIP(config.tricaster, newTriCaster);
+
+  if (newSSID.length() > 0) {
+    newSSID.toCharArray(config.ssid, sizeof(config.ssid));
+  }
+
+  if (newPassword.length() > 0) {
+    newPassword.toCharArray(config.wifiPassword, sizeof(config.wifiPassword));
+  }
+
+  config.dhcp = newDhcp;
+
+  if (!newDhcp) {
+    copyIP(config.ip, newIP);
+    copyIP(config.gateway, newGateway);
+    copyIP(config.subnet, newSubnet);
+    copyIP(config.dns, newDNS);
+  }
+
+  copyIP(config.tricaster, newTriCaster);
+
   saveConfig();
   server.send(200, "text/plain", "OK - redemarrage");
-  delay(250); ESP.restart();
+  delay(300);
+  ESP.restart();
 }
 
 void handleReboot() {
+  if (!requireAdmin()) return;
+
   server.send(200, "text/plain", "OK - redemarrage");
-  delay(250); ESP.restart();
+  delay(250);
+  ESP.restart();
 }
 
 void setupRoutes() {
-  server.on("/status", handleStatus);
-  server.on("/camera", handleCamera);
-  server.on("/brightness", handleBrightness);
-  server.on("/colors", handleColors);
-  server.on("/identify", handleIdentify);
-  server.on("/config", handleConfig);
-  server.on("/reboot", handleReboot);
-  server.onNotFound([](){ server.send(404, "text/plain", "Not found"); });
+  server.on("/", HTTP_GET, []() {
+    if (setupPortalActive) handleSetupPage();
+    else server.send(200, "application/json", statusJSON());
+  });
+
+  server.on("/setup", HTTP_GET, handleSetupPage);
+  server.on("/setup-save", HTTP_POST, handleSetupSave);
+
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/camera", HTTP_GET, handleCamera);
+  server.on("/brightness", HTTP_GET, handleBrightness);
+  server.on("/colors", HTTP_GET, handleColors);
+  server.on("/identify", HTTP_GET, handleIdentify);
+  server.on("/config", HTTP_GET, handleConfig);
+  server.on("/reboot", HTTP_GET, handleReboot);
+
+  // OTA HTTP standard : /update, authentifie en Basic admin:<token>.
+  httpUpdater.setup(&server, "/update", "admin", config.adminToken);
+
+  server.onNotFound([]() {
+    if (setupPortalActive) {
+      server.sendHeader("Location", "http://192.168.4.1/setup", true);
+      server.send(302, "text/plain", "");
+    } else {
+      server.send(404, "text/plain", "Not found");
+    }
+  });
+
   server.begin();
 }
+
+void startSetupPortal() {
+  setupPortalActive = true;
+
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_AP_STA);
+
+  IPAddress apIP(192,168,4,1);
+  IPAddress apMask(255,255,255,0);
+  WiFi.softAPConfig(apIP, apIP, apMask);
+
+  String apName = String(config.name) + "-SETUP";
+  WiFi.softAP(apName.c_str());
+
+  dnsServer.start(DNS_PORT, "*", apIP);
+
+  wifiRecoveryState = WIFI_SEARCHING;
+  updateLED();
+
+  Serial.println();
+  Serial.println("============================================");
+  Serial.println("[SETUP] Aucun reseau joignable.");
+  Serial.println("[SETUP] Connectez-vous au Wi-Fi : " + apName);
+  Serial.println("[SETUP] Ouvrez : http://192.168.4.1/");
+  Serial.println("============================================");
+
+  while (setupPortalActive) {
+    dnsServer.processNextRequest();
+    server.handleClient();
+    updateLED();
+    delay(2);
+    yield();
+  }
+}
+
 
 String formatBSSID(const uint8_t* bssid) {
   char buffer[18];
@@ -546,7 +816,7 @@ int findBestSSID(int count, int& bestRssi) {
   bestRssi = -1000;
 
   for (int i = 0; i < count; i++) {
-    if (WiFi.SSID(i) != WIFI_SSID) continue;
+    if (WiFi.SSID(i) != config.ssid) continue;
 
     int rssi = WiFi.RSSI(i);
     if (bestIndex < 0 || rssi > bestRssi) {
@@ -609,7 +879,7 @@ void processRoamScan(unsigned long now) {
   int bestRssi = currentRssi;
 
   for (int i = 0; i < count; i++) {
-    if (WiFi.SSID(i) != WIFI_SSID) continue;
+    if (WiFi.SSID(i) != config.ssid) continue;
 
     const uint8_t* candidateBssid = WiFi.BSSID(i);
     if (!candidateBssid || sameBSSID(candidateBssid, currentBssid)) continue;
@@ -642,8 +912,8 @@ void processRoamScan(unsigned long now) {
 
     WiFi.disconnect(false);
     delay(10);
-    WiFi.config(savedIP(), gateway, subnet, dns);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
+    applyNetworkConfig();
+    WiFi.begin(config.ssid, config.wifiPassword, bestChannel, bestBssid, true);
     return;
   }
 
@@ -719,6 +989,7 @@ void processRecovery(unsigned long now) {
     if (WiFi.status() == WL_CONNECTED) {
       wifiRecoveryState = WIFI_NORMAL;
       recoveryConnectStart = 0;
+      updateBroadcastIP();
 
       // On laisse 2 s au TriCaster pour repondre avant un eventuel jaune.
       lastGoodTally = now;
@@ -773,8 +1044,8 @@ void processRecovery(unsigned long now) {
                        " / canal " + String(bestChannel) +
                        " / RSSI " + String(bestRssi) + " dBm");
 
-        WiFi.config(savedIP(), gateway, subnet, dns);
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
+        applyNetworkConfig();
+        WiFi.begin(config.ssid, config.wifiPassword, bestChannel, bestBssid, true);
 
         wifiRecoveryState = WIFI_CONNECTING;
         recoveryConnectStart = now;
@@ -801,71 +1072,85 @@ void connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
 
-  // Le roaming et la reconnexion sont geres par notre propre machine d'etat.
+  // Le firmware gere lui-meme le roaming et la reconnexion.
   WiFi.setAutoReconnect(false);
+  applyNetworkConfig();
 
-  WiFi.config(savedIP(), gateway, subnet, dns);
+  unsigned long startupStartedAt = millis();
 
   while (WiFi.status() != WL_CONNECTED) {
-    // 1) Recherche : bleu fixe
     wifiRecoveryState = WIFI_SEARCHING;
     updateLED();
 
-    Serial.println("[WIFI] Recherche du reseau " + String(WIFI_SSID));
+    Serial.println("[WIFI] Recherche du reseau " + String(config.ssid));
 
     int count = WiFi.scanNetworks(false, false);
     int bestRssi;
     int bestIndex = findBestSSID(count, bestRssi);
 
-    if (bestIndex < 0) {
+    if (bestIndex >= 0) {
+      uint8_t bestBssid[6];
+      memcpy(bestBssid, WiFi.BSSID(bestIndex), 6);
+
+      int32_t bestChannel = WiFi.channel(bestIndex);
+      String targetBssid = formatBSSID(bestBssid);
+
       WiFi.scanDelete();
-      delay(500);
-      yield();
-      continue;
+
+      Serial.println("[WIFI] Reseau trouve -> tentative de connexion a " +
+                     targetBssid + " / canal " + String(bestChannel) +
+                     " / RSSI " + String(bestRssi) + " dBm");
+
+      applyNetworkConfig();
+
+      WiFi.begin(
+        config.ssid,
+        config.wifiPassword,
+        bestChannel,
+        bestBssid,
+        true
+      );
+
+      wifiRecoveryState = WIFI_CONNECTING;
+      unsigned long connectStart = millis();
+
+      while (WiFi.status() != WL_CONNECTED &&
+             millis() - connectStart < WIFI_CONNECT_TIMEOUT) {
+        updateLED();
+        server.handleClient();
+        delay(40);
+        yield();
+      }
+
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
+        WiFi.disconnect(false);
+        wifiRecoveryState = WIFI_SEARCHING;
+        updateLED();
+      }
+    } else {
+      WiFi.scanDelete();
     }
 
-    uint8_t bestBssid[6];
-    memcpy(bestBssid, WiFi.BSSID(bestIndex), 6);
-    int32_t bestChannel = WiFi.channel(bestIndex);
-    String targetBssid = formatBSSID(bestBssid);
-
-    WiFi.scanDelete();
-
-    Serial.println("[WIFI] Reseau trouve -> tentative de connexion a " + targetBssid +
-                   " / canal " + String(bestChannel) +
-                   " / RSSI " + String(bestRssi) + " dBm");
-
-    // 2) Tentative de connexion : bleu clignotant
-    WiFi.config(savedIP(), gateway, subnet, dns);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
-
-    wifiRecoveryState = WIFI_CONNECTING;
-    unsigned long connectStart = millis();
-
-    while (WiFi.status() != WL_CONNECTED &&
-           millis() - connectStart < WIFI_CONNECT_TIMEOUT) {
-      updateLED();
-      delay(40);
-      yield();
+    if (WiFi.status() != WL_CONNECTED &&
+        millis() - startupStartedAt >= STARTUP_SETUP_TIMEOUT) {
+      startSetupPortal();
     }
 
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
-      WiFi.disconnect(false);
-      wifiRecoveryState = WIFI_SEARCHING;
-      updateLED();
-      delay(250);
-    }
+    delay(250);
+    yield();
   }
 
   wifiRecoveryState = WIFI_NORMAL;
+  updateBroadcastIP();
   lastGoodTally = millis();
 
   Serial.println("[WIFI] Connecte a " + WiFi.BSSIDstr() +
                  " / canal " + String(WiFi.channel()) +
                  " / RSSI " + String(WiFi.RSSI()) + " dBm");
+  Serial.println("[WIFI] IP : " + WiFi.localIP().toString() +
+                 " / Gateway : " + WiFi.gatewayIP().toString());
 
-  // Au premier instant Wi-Fi OK, on revient sur le dernier etat tally (OFF au boot).
   updateLED();
 }
 
@@ -873,8 +1158,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(PIN_RED, OUTPUT); pinMode(PIN_GREEN, OUTPUT); pinMode(PIN_BLUE, OUTPUT);
   analogWriteRange(1023); analogWriteFreq(1000);
-  loadConfig(); ledsOff(); startupAnimation(); connectWiFi();
-  udp.begin(4211); setupRoutes();
+  loadConfig(); ledsOff(); startupAnimation();
+  setupRoutes();
+  connectWiFi();
+  udp.begin(4211);
   lastGoodTally = millis();
   Serial.println(); Serial.println("TRICASTER ELITE 2 WIFI TALLY");
   Serial.println(String(config.name) + " - " + WiFi.localIP().toString());
@@ -906,6 +1193,7 @@ void loop() {
       roamInProgress = false;
       roamCount++;
       lastRoamCompletedAt = now;
+      updateBroadcastIP();
       lastGoodTally = now;
 
       Serial.println("[WIFI] Roaming termine -> " + WiFi.BSSIDstr() +
