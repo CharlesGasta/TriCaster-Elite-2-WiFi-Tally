@@ -19,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-MANAGER_VERSION = "4.1.1"
+MANAGER_VERSION = "4.1.2"
 HTTP_PORT = 8099
 UDP_PORT = 4210
 OFFLINE_AFTER = 3.5
@@ -318,7 +318,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111111">
-<title>TriCaster Elite 2 Tally Manager V4.1.1</title>
+<title>TriCaster Elite 2 Tally Manager V4.1.2</title>
 <style>
 *{box-sizing:border-box} html{-webkit-text-size-adjust:100%}
 body{font-family:Arial,sans-serif;background:#111;color:#eee;margin:0;padding:12px;min-height:100vh}
@@ -352,7 +352,7 @@ label{display:block;color:#bbb;font-size:11px;margin-bottom:3px}.actions{display
 </head>
 <body>
 <div class="wrap">
-<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1><div class="sub">Version V4.1.1 — PRE-FLIGHT · PRODUCTION LOCK · OTA vérifiée · logs persistants</div></div>
+<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1><div class="sub">Version V4.1.2 — PRE-FLIGHT · PRODUCTION LOCK · OTA vérifiée · logs persistants</div></div>
 <div class="access"><strong>Accès téléphone :</strong><span class="access-url" id="access-url"></span></div></div>
 
 <div class="panel safety">
@@ -522,16 +522,16 @@ function card(d){
     '<div class="meta diag">Pertes : '+esc(losses)+' · dernier roaming : '+esc(roamAge)+'</div></div>'+
     '<div class="'+(online?'online':'offline')+'">● '+(online?'CONNECTÉ':'HORS LIGNE')+'</div></div>'+
     '<div class="meta">État : <span class="state '+stateClass+'">'+esc((d.state||'off').toUpperCase())+'</span></div>'+
-    '<div class="ota-pick"><input type="checkbox" '+checked+' '+(productionMode||!online?'disabled':'')+' onchange="otaToggle('+quotedName+',this.checked)"> Inclure dans la MAJ sélectionnée</div>'+
+    '<div class="ota-pick"><input type="checkbox" data-tally="'+safeName+'" '+checked+' '+(productionMode||!online?'disabled':'')+' onchange="otaToggle(this.dataset.tally,this.checked)"> Inclure dans la MAJ sélectionnée</div>'+
     '<div class="grid">'+
-      '<div><label>Caméra attribuée</label><select id="cam-'+safeName+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'>'+cams+'</select></div>'+
-      '<div><label>Couleur PROGRAM</label><input type="color" id="pgm-'+safeName+'" value="'+pgm+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'></div>'+
-      '<div><label>Luminosité : <span id="bv-'+safeName+'">'+(d.brightness??100)+'%</span></label><input type="range" min="1" max="100" value="'+(d.brightness??100)+'" id="b-'+safeName+'" onpointerdown="editingBrightness['+quotedName+']=true" onpointerup="editingBrightness['+quotedName+']=false" oninput="sendBrightness('+quotedName+',this.value)" '+adminDisabled+'></div>'+
-      '<div><label>Couleur PREVIEW</label><input type="color" id="prev-'+safeName+'" value="'+prev+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'></div>'+
+      '<div><label>Caméra attribuée</label><select id="cam-'+safeName+'" data-tally="'+safeName+'" onchange="saveSettings(this.dataset.tally)" '+adminDisabled+'>'+cams+'</select></div>'+
+      '<div><label>Couleur PROGRAM</label><input type="color" id="pgm-'+safeName+'" data-tally="'+safeName+'" value="'+pgm+'" onchange="saveSettings(this.dataset.tally)" '+adminDisabled+'></div>'+
+      '<div><label>Luminosité : <span id="bv-'+safeName+'">'+(d.brightness??100)+'%</span></label><input type="range" min="1" max="100" value="'+(d.brightness??100)+'" id="b-'+safeName+'" data-tally="'+safeName+'" onpointerdown="editingBrightness[this.dataset.tally]=true" onpointerup="editingBrightness[this.dataset.tally]=false" onpointercancel="editingBrightness[this.dataset.tally]=false" oninput="sendBrightness(this.dataset.tally,this.value)" '+adminDisabled+'></div>'+
+      '<div><label>Couleur PREVIEW</label><input type="color" id="prev-'+safeName+'" data-tally="'+safeName+'" value="'+prev+'" onchange="saveSettings(this.dataset.tally)" '+adminDisabled+'></div>'+
     '</div>'+
-    '<div class="actions"><button class="ident" '+adminDisabled+' onclick="api('+quotedName+',\'identify\')">IDENTIFY</button>'+
-    '<button class="reboot" '+adminDisabled+' onclick="if(confirm(\'Redémarrer '+safeName+' ?\'))api('+quotedName+',\'reboot\')">REBOOT</button>'+
-    '<button class="save" '+adminDisabled+' onclick="uploadFirmware(\'single\','+quotedName+')">OTA CE TALLY</button></div>'+
+    '<div class="actions"><button class="ident" data-tally="'+safeName+'" '+adminDisabled+' onclick="api(this.dataset.tally,\'identify\')">IDENTIFY</button>'+
+    '<button class="reboot" data-tally="'+safeName+'" '+adminDisabled+' onclick="const n=this.dataset.tally;if(confirm(\'Redémarrer \'+n+\' ?\'))api(n,\'reboot\')">REBOOT</button>'+
+    '<button class="save" data-tally="'+safeName+'" '+adminDisabled+' onclick="uploadFirmware(\'single\',this.dataset.tally)">OTA CE TALLY</button></div>'+
     '<details class="config" data-tally="'+safeName+'"><summary>CONFIGURATION RÉSEAU / BOÎTIER</summary><div class="config-grid">'+
       '<div><label>Nom / cadreur</label><input type="text" id="new-name-'+safeName+'" maxlength="31" value="'+safeName+'" '+adminDisabled+'></div>'+
       '<div><label>SSID</label><input type="text" id="ssid-'+safeName+'" maxlength="32" value="'+esc(d.ssid||'')+'" '+adminDisabled+'></div>'+
@@ -543,9 +543,9 @@ function card(d){
       '<div><label>Gateway</label><input type="text" id="gateway-'+safeName+'" value="'+esc(d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
       '<div><label>Subnet</label><input type="text" id="subnet-'+safeName+'" value="'+esc(d.subnet||'255.255.255.0')+'" '+adminDisabled+'></div>'+
       '<div><label>DNS</label><input type="text" id="dns-'+safeName+'" value="'+esc(d.dns||d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
-      '<button class="save" '+adminDisabled+' onclick="saveNetwork('+quotedName+')">ENREGISTRER RÉSEAU</button></div>'+
+      '<button class="save" data-tally="'+safeName+'" '+adminDisabled+' onclick="saveNetwork(this.dataset.tally)">ENREGISTRER RÉSEAU</button></div>'+
       '<div class="config-grid"><div><label>Nom convivial de l\'AP actuel</label><input type="text" id="ap-alias-'+safeName+'" value="'+esc(d.ap_name||'')+'" placeholder="ex. AP TERRAIN" '+onlineDisabled+'></div>'+
-      '<div><label>BSSID</label><input type="text" value="'+esc(bssidText)+'" disabled></div><button class="save" '+onlineDisabled+' onclick="saveApAlias('+quotedName+')">NOMMER CET AP</button></div>'+
+      '<div><label>BSSID</label><input type="text" value="'+esc(bssidText)+'" disabled></div><button class="save" data-tally="'+safeName+'" '+onlineDisabled+' onclick="saveApAlias(this.dataset.tally)">NOMMER CET AP</button></div>'+
     '</details></div>';
 }
 
