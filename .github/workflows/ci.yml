@@ -23,6 +23,41 @@ jobs:
           open("/tmp/tally-manager.js", "w", encoding="utf-8").write(script)
           PY
           node --check /tmp/tally-manager.js
+      - name: Manager production smoke tests
+        run: |
+          python - <<'PY'
+          import time
+          import TriCaster_Elite2_Tally_Manager as m
+
+          now = time.time()
+          m.manager_config["api_token"] = "CI_TEST_TOKEN"
+          m.manager_config["expected_tally_count"] = 1
+          m.devices.clear()
+          m.devices["TALLY-01"] = {
+              "name": "TALLY-01",
+              "ip": "192.168.1.81",
+              "tricaster": "192.168.1.50",
+              "camera": 1,
+              "firmware": "4.1.0",
+              "rssi": -55,
+              "bssid": "00:11:22:33:44:55",
+              "channel": 1,
+              "wifi_state": "connected",
+              "state": "off",
+              "tricaster_latency_ms": 12,
+              "last_tally_age_ms": 100,
+              "last_seen": now,
+          }
+          report = m.preflight_report()
+          assert report["verdict"] == "GO", report
+
+          m.devices["TALLY-02"] = dict(m.devices["TALLY-01"], name="TALLY-02", camera=2)
+          m.manager_config["expected_tally_count"] = 2
+          report = m.preflight_report()
+          assert report["verdict"] == "NO-GO", report
+          assert any(x["title"] == "Doublon IP" for x in report["checks"])
+          print("Manager V4.1 production smoke tests OK")
+          PY
 
   manager-windows:
     runs-on: windows-latest
