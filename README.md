@@ -234,6 +234,8 @@ puis trois flashs blancs rapides.
 #define DEFAULT_TALLY_NUMBER 1
 ```
 
+> **Important :** `DEFAULT_TALLY_NUMBER` sert uniquement lorsqu'aucune configuration valide n'est encore enregistrée dans l'EEPROM. Si un ESP a déjà été configuré comme `TALLY-06 / CAM 6`, le reflasher avec `DEFAULT_TALLY_NUMBER 5` **ne le renomme pas automatiquement** : la configuration EEPROM est volontairement conservée. Le nom et la caméra peuvent être changés depuis le Manager, ou l'EEPROM peut être effacée pour repartir comme un boîtier neuf.
+
 6. Compiler puis téléverser.
 
 Le firmware V4 conserve toujours des valeurs par défaut compilables :
@@ -701,6 +703,8 @@ The firmware uses inverted PWM for a common-anode RGB strip.
 ```cpp
 #define DEFAULT_TALLY_NUMBER 1
 ```
+
+> **Important:** `DEFAULT_TALLY_NUMBER` is only used when no valid configuration is already stored in EEPROM. If an ESP is already configured as `TALLY-06 / CAM 6`, reflashing it with `DEFAULT_TALLY_NUMBER 5` **will not rename it automatically**: the saved EEPROM configuration is intentionally preserved. Change the name/camera from the Manager, or erase EEPROM to start as a new unit.
 
 6. Compile and upload.
 
