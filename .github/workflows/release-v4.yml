@@ -1,0 +1,117 @@
+name: Publish V4 Release
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/release-v4.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-manager:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Windows Manager
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --clean --onefile --console --name TriCaster_Elite2_Tally_Manager TriCaster_Elite2_Tally_Manager.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manager-release
+          path: dist/TriCaster_Elite2_Tally_Manager.exe
+          if-no-files-found: error
+
+  build-firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP8266 core
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266
+      - name: Build ESP8266 firmware
+        run: |
+          mkdir -p /tmp/TriCasterTally build
+          cp TriCaster_Elite2_Tally_ESP8266.ino /tmp/TriCasterTally/TriCasterTally.ino
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir "$GITHUB_WORKSPACE/build" /tmp/TriCasterTally
+          cp build/TriCasterTally.ino.bin build/TriCaster_Elite2_Tally_ESP8266_V4.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-release
+          path: build/TriCaster_Elite2_Tally_ESP8266_V4.bin
+          if-no-files-found: error
+
+  release:
+    needs: [build-manager, build-firmware]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: manager-release
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-release
+          path: release
+      - name: Build complete ZIP
+        run: |
+          cp TriCaster_Elite2_Tally_Manager.py release/
+          cp TriCaster_Elite2_Tally_ESP8266.ino release/
+          cp README.md release/
+          cat > release/LISEZ-MOI.txt <<'EOF'
+          TriCaster Elite 2 WiFi Tally V4.0.0
+
+          Fichiers principaux:
+          - TriCaster_Elite2_Tally_Manager.exe : Manager Windows
+          - TriCaster_Elite2_Tally_ESP8266_V4.bin : firmware ESP8266
+          - TriCaster_Elite2_Tally_Manager.py : source Manager
+          - TriCaster_Elite2_Tally_ESP8266.ino : source Arduino
+          - README.md : documentation
+
+          Premier passage vers V4:
+          - Les anciens ESP sans OTA doivent etre flashes une derniere fois par USB.
+          - Ensuite les mises a jour peuvent etre envoyees depuis le Manager.
+
+          Demarrage automatique Windows:
+          - Si une tache planifiee pointe deja vers un nom et un chemin fixes,
+            gardez exactement le meme nom de fichier et remplacez simplement l'ancien EXE.
+          EOF
+          cd release
+          zip -r ../TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip .
+          cd ..
+      - name: Release notes
+        run: |
+          cat > release_notes.md <<'EOF'
+          ## TriCaster Elite 2 WiFi Tally V4.0.0
+
+          V4 adds multi-AP roaming, captive setup, DHCP/static IP configuration,
+          Manager diagnostics, authenticated administration and fleet OTA updates.
+
+          ### Downloads
+          - **TriCaster_Elite2_Tally_Manager.exe** — Windows Manager
+          - **TriCaster_Elite2_Tally_ESP8266_V4.bin** — ESP8266 firmware
+          - **TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip** — complete package
+
+          Existing Windows startup tasks can remain unchanged if the replacement EXE
+          is copied to the same path using exactly the same filename as the previous executable.
+          EOF
+      - name: Create or update V4 release
+        run: |
+          if gh release view v4.0.0 >/dev/null 2>&1; then
+            gh release upload v4.0.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4.bin               TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip               --clobber
+          else
+            gh release create v4.0.0               release/TriCaster_Elite2_Tally_Manager.exe               release/TriCaster_Elite2_Tally_ESP8266_V4.bin               TriCaster_Elite2_WiFi_Tally_V4_COMPLETE.zip               --target "$GITHUB_SHA"               --title "TriCaster Elite 2 WiFi Tally V4.0.0"               --notes-file release_notes.md               --latest
+          fi
