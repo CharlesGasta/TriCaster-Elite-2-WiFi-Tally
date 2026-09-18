@@ -35,6 +35,13 @@ const unsigned long ROAM_SCAN_INTERVAL = 10000; // ms  : intervalle entre deux v
 const unsigned long ROAM_COOLDOWN = 15000;      // ms  : evite les bascules aller/retour
 const unsigned long ROAM_CONNECT_TIMEOUT = 8000;// ms  : abandon d'une tentative de roaming
 
+// Reconnexion apres une vraie perte Wi-Fi.
+// Bleu fixe = recherche du SSID.
+// Bleu clignotant = SSID trouve, association Wi-Fi en cours.
+const unsigned long WIFI_CONNECT_TIMEOUT = 8000;
+const unsigned long WIFI_SCAN_RETRY = 1000;
+const unsigned long BLUE_BLINK_INTERVAL = 250;
+
 struct Config {
   uint32_t magic;
   char name[32];
@@ -51,16 +58,25 @@ ESP8266WebServer server(80);
 WiFiUDP udp;
 
 enum TallyState { STATE_OFF, STATE_PREVIEW, STATE_PROGRAM, STATE_ERROR };
-TallyState currentState = STATE_ERROR;
+enum WiFiRecoveryState { WIFI_NORMAL, WIFI_SEARCHING, WIFI_CONNECTING };
+
+TallyState currentState = STATE_OFF;
+WiFiRecoveryState wifiRecoveryState = WIFI_SEARCHING;
+
 bool identifyActive = false;
 unsigned long identifyStart = 0;
 unsigned long lastPoll = 0;
 unsigned long lastGoodTally = 0;
 unsigned long lastHeartbeat = 0;
+
 unsigned long lastRoamCheck = 0;
 unsigned long lastRoamAt = 0;
 bool roamScanRunning = false;
 bool roamInProgress = false;
+
+bool recoveryScanRunning = false;
+unsigned long recoveryConnectStart = 0;
+unsigned long lastRecoveryScanAt = 0;
 
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -143,19 +159,44 @@ void startupAnimation() {
   }
 }
 
-void updateLED() {
-  if (identifyActive) return;
-
-  // Bleu pendant une perte Wi-Fi ou une bascule entre deux points d'acces.
-  if (WiFi.status() != WL_CONNECTED || roamInProgress) {
-    setRGBPWM(0, 0, 255);
-    return;
-  }
-
+void applyTallyLED() {
   if (currentState == STATE_PROGRAM) setRGBPWM(config.pgmR, config.pgmG, config.pgmB);
   else if (currentState == STATE_PREVIEW) setRGBPWM(config.prevR, config.prevG, config.prevB);
   else if (currentState == STATE_ERROR) setRGBPWM(255, 160, 0);
   else ledsOff();
+}
+
+void updateLED() {
+  if (identifyActive) return;
+
+  // Roaming volontaire : totalement invisible pour le cadreur.
+  // On conserve strictement le dernier etat tally pendant le scan et la bascule.
+  if (roamScanRunning || roamInProgress) {
+    applyTallyLED();
+    return;
+  }
+
+  // Vraie perte Wi-Fi : bleu fixe pendant la recherche du reseau.
+  if (wifiRecoveryState == WIFI_SEARCHING) {
+    setRGBPWM(0, 0, 255);
+    return;
+  }
+
+  // SSID retrouve : bleu clignotant pendant la tentative d'association.
+  if (wifiRecoveryState == WIFI_CONNECTING) {
+    if ((millis() / BLUE_BLINK_INTERVAL) % 2) setRGBPWM(0, 0, 255);
+    else ledsOff();
+    return;
+  }
+
+  // Securite : si le lien tombe sans que la machine d'etat ait encore reagit.
+  if (WiFi.status() != WL_CONNECTED) {
+    setRGBPWM(0, 0, 255);
+    return;
+  }
+
+  // Wi-Fi OK : rouge/vert/off selon le TriCaster, jaune si le TriCaster est perdu.
+  applyTallyLED();
 }
 
 String jsonEscape(const String& value) {
@@ -186,6 +227,11 @@ String statusJSON() {
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"bssid\":\"" + WiFi.BSSIDstr() + "\",";
   json += "\"channel\":" + String(WiFi.channel()) + ",";
+  String wifiState = "connected";
+  if (roamScanRunning || roamInProgress) wifiState = "roaming";
+  else if (wifiRecoveryState == WIFI_SEARCHING) wifiState = "searching";
+  else if (wifiRecoveryState == WIFI_CONNECTING) wifiState = "connecting";
+  json += "\"wifi_state\":\"" + wifiState + "\",";
   json += "\"brightness\":" + String(config.brightness) + ",";
   json += "\"pgm\":[" + String(config.pgmR) + "," + String(config.pgmG) + "," + String(config.pgmB) + "],";
   json += "\"preview\":[" + String(config.prevR) + "," + String(config.prevG) + "," + String(config.prevB) + "]";
@@ -358,13 +404,38 @@ bool sameBSSID(const uint8_t* a, const uint8_t* b) {
   return true;
 }
 
+int findBestSSID(int count, int& bestRssi) {
+  int bestIndex = -1;
+  bestRssi = -1000;
+
+  for (int i = 0; i < count; i++) {
+    if (WiFi.SSID(i) != WIFI_SSID) continue;
+
+    int rssi = WiFi.RSSI(i);
+    if (bestIndex < 0 || rssi > bestRssi) {
+      bestIndex = i;
+      bestRssi = rssi;
+    }
+  }
+
+  return bestIndex;
+}
+
+// =====================================================
+// ROAMING VOLONTAIRE - INVISIBLE POUR LE CADREUR
+// =====================================================
+
 void startRoamScan() {
-  if (roamScanRunning || roamInProgress || WiFi.status() != WL_CONNECTED) return;
+  if (roamScanRunning || roamInProgress || wifiRecoveryState != WIFI_NORMAL ||
+      WiFi.status() != WL_CONNECTED) return;
 
   Serial.println("[WIFI] RSSI faible (" + String(WiFi.RSSI()) + " dBm) -> scan roaming");
+
   int result = WiFi.scanNetworks(true, false);
   if (result == WIFI_SCAN_RUNNING || result >= 0) {
     roamScanRunning = true;
+    // Ne pas changer la LED : on garde le dernier etat tally.
+    updateLED();
   } else {
     Serial.println("[WIFI] Impossible de demarrer le scan roaming");
     WiFi.scanDelete();
@@ -381,16 +452,20 @@ void processRoamScan(unsigned long now) {
 
   if (count < 0 || WiFi.status() != WL_CONNECTED) {
     WiFi.scanDelete();
+    updateLED();
     return;
   }
 
   int currentRssi = WiFi.RSSI();
   uint8_t currentBssid[6];
   const uint8_t* connectedBssid = WiFi.BSSID();
+
   if (!connectedBssid) {
     WiFi.scanDelete();
+    updateLED();
     return;
   }
+
   memcpy(currentBssid, connectedBssid, 6);
 
   int bestIndex = -1;
@@ -415,15 +490,18 @@ void processRoamScan(unsigned long now) {
     int32_t bestChannel = WiFi.channel(bestIndex);
     String targetBssid = formatBSSID(bestBssid);
 
-    Serial.println("[WIFI] Roaming " + WiFi.BSSIDstr() + " (" + String(currentRssi) +
-                   " dBm) -> " + targetBssid + " (" + String(bestRssi) +
-                   " dBm), canal " + String(bestChannel));
+    Serial.println("[WIFI] Roaming invisible " + WiFi.BSSIDstr() + " (" +
+                   String(currentRssi) + " dBm) -> " + targetBssid + " (" +
+                   String(bestRssi) + " dBm), canal " + String(bestChannel));
 
     WiFi.scanDelete();
 
     roamInProgress = true;
     lastRoamAt = now;
-    setRGBPWM(0, 0, 255);
+
+    // IMPORTANT : aucune LED de connexion ici.
+    // currentState reste intact et continue d'etre affiche pendant la bascule.
+    updateLED();
 
     WiFi.disconnect(false);
     delay(10);
@@ -431,6 +509,10 @@ void processRoamScan(unsigned long now) {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
     return;
   }
+
+  // Le scan lui-meme peut interrompre brièvement les requetes HTTP.
+  // On accorde donc un nouveau delai avant d'autoriser un jaune TriCaster.
+  lastGoodTally = now;
 
   if (bestIndex >= 0) {
     Serial.println("[WIFI] Meilleur AP seulement +" + String(bestRssi - currentRssi) +
@@ -440,6 +522,7 @@ void processRoamScan(unsigned long now) {
   }
 
   WiFi.scanDelete();
+  updateLED();
 }
 
 void handleRoaming(unsigned long now) {
@@ -448,7 +531,7 @@ void handleRoaming(unsigned long now) {
     return;
   }
 
-  if (roamInProgress) return;
+  if (roamInProgress || wifiRecoveryState != WIFI_NORMAL) return;
   if (now - lastRoamAt < ROAM_COOLDOWN) return;
   if (now - lastRoamCheck < ROAM_SCAN_INTERVAL) return;
 
@@ -459,19 +542,193 @@ void handleRoaming(unsigned long now) {
   }
 }
 
+// =====================================================
+// VRAIE PERTE WIFI : RECHERCHE / RECONNEXION VISIBLE
+// =====================================================
+
+void startWiFiRecovery(unsigned long now) {
+  if (roamInProgress) return;
+
+  roamScanRunning = false;
+  WiFi.scanDelete();
+
+  recoveryScanRunning = false;
+  wifiRecoveryState = WIFI_SEARCHING;
+  lastRecoveryScanAt = 0;
+  recoveryConnectStart = 0;
+
+  Serial.println("[WIFI] Liaison perdue -> recherche du reseau");
+  updateLED(); // bleu fixe
+}
+
+void startRecoveryScan(unsigned long now) {
+  if (recoveryScanRunning || WiFi.status() == WL_CONNECTED) return;
+
+  wifiRecoveryState = WIFI_SEARCHING;
+  lastRecoveryScanAt = now;
+  updateLED(); // bleu fixe
+
+  int result = WiFi.scanNetworks(true, false);
+  if (result == WIFI_SCAN_RUNNING || result >= 0) {
+    recoveryScanRunning = true;
+  } else {
+    WiFi.scanDelete();
+  }
+}
+
+void processRecovery(unsigned long now) {
+  if (wifiRecoveryState == WIFI_CONNECTING) {
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiRecoveryState = WIFI_NORMAL;
+      recoveryConnectStart = 0;
+
+      // On laisse 2 s au TriCaster pour repondre avant un eventuel jaune.
+      lastGoodTally = now;
+
+      Serial.println("[WIFI] Reconnexion terminee -> " + WiFi.BSSIDstr() +
+                     " / canal " + String(WiFi.channel()) +
+                     " / RSSI " + String(WiFi.RSSI()) + " dBm");
+
+      updateLED();
+      return;
+    }
+
+    if (now - recoveryConnectStart >= WIFI_CONNECT_TIMEOUT) {
+      Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
+      WiFi.disconnect(false);
+      wifiRecoveryState = WIFI_SEARCHING;
+      recoveryConnectStart = 0;
+      lastRecoveryScanAt = 0;
+      updateLED();
+      return;
+    }
+
+    // Bleu clignotant pendant l'association.
+    updateLED();
+    return;
+  }
+
+  if (wifiRecoveryState != WIFI_SEARCHING) return;
+
+  // Bleu fixe pendant toute la recherche.
+  updateLED();
+
+  if (recoveryScanRunning) {
+    int count = WiFi.scanComplete();
+    if (count == WIFI_SCAN_RUNNING) return;
+
+    recoveryScanRunning = false;
+
+    if (count >= 0) {
+      int bestRssi;
+      int bestIndex = findBestSSID(count, bestRssi);
+
+      if (bestIndex >= 0) {
+        uint8_t bestBssid[6];
+        memcpy(bestBssid, WiFi.BSSID(bestIndex), 6);
+        int32_t bestChannel = WiFi.channel(bestIndex);
+        String targetBssid = formatBSSID(bestBssid);
+
+        WiFi.scanDelete();
+
+        Serial.println("[WIFI] Reseau retrouve -> connexion a " + targetBssid +
+                       " / canal " + String(bestChannel) +
+                       " / RSSI " + String(bestRssi) + " dBm");
+
+        WiFi.config(savedIP(), gateway, subnet, dns);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
+
+        wifiRecoveryState = WIFI_CONNECTING;
+        recoveryConnectStart = now;
+        updateLED(); // debut du bleu clignotant
+        return;
+      }
+    }
+
+    WiFi.scanDelete();
+    Serial.println("[WIFI] Reseau introuvable -> poursuite de la recherche");
+  }
+
+  if (!recoveryScanRunning &&
+      (lastRecoveryScanAt == 0 || now - lastRecoveryScanAt >= WIFI_SCAN_RETRY)) {
+    startRecoveryScan(now);
+  }
+}
+
+// =====================================================
+// CONNEXION INITIALE
+// =====================================================
+
 void connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
+
+  // Le roaming et la reconnexion sont geres par notre propre machine d'etat.
+  WiFi.setAutoReconnect(false);
+
   WiFi.config(savedIP(), gateway, subnet, dns);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
   while (WiFi.status() != WL_CONNECTED) {
-    setRGBPWM(0, 0, 255); delay(180); ledsOff(); delay(180); yield();
+    // 1) Recherche : bleu fixe
+    wifiRecoveryState = WIFI_SEARCHING;
+    updateLED();
+
+    Serial.println("[WIFI] Recherche du reseau " + String(WIFI_SSID));
+
+    int count = WiFi.scanNetworks(false, false);
+    int bestRssi;
+    int bestIndex = findBestSSID(count, bestRssi);
+
+    if (bestIndex < 0) {
+      WiFi.scanDelete();
+      delay(500);
+      yield();
+      continue;
+    }
+
+    uint8_t bestBssid[6];
+    memcpy(bestBssid, WiFi.BSSID(bestIndex), 6);
+    int32_t bestChannel = WiFi.channel(bestIndex);
+    String targetBssid = formatBSSID(bestBssid);
+
+    WiFi.scanDelete();
+
+    Serial.println("[WIFI] Reseau trouve -> tentative de connexion a " + targetBssid +
+                   " / canal " + String(bestChannel) +
+                   " / RSSI " + String(bestRssi) + " dBm");
+
+    // 2) Tentative de connexion : bleu clignotant
+    WiFi.config(savedIP(), gateway, subnet, dns);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, bestChannel, bestBssid, true);
+
+    wifiRecoveryState = WIFI_CONNECTING;
+    unsigned long connectStart = millis();
+
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - connectStart < WIFI_CONNECT_TIMEOUT) {
+      updateLED();
+      delay(40);
+      yield();
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
+      WiFi.disconnect(false);
+      wifiRecoveryState = WIFI_SEARCHING;
+      updateLED();
+      delay(250);
+    }
   }
+
+  wifiRecoveryState = WIFI_NORMAL;
+  lastGoodTally = millis();
 
   Serial.println("[WIFI] Connecte a " + WiFi.BSSIDstr() +
                  " / canal " + String(WiFi.channel()) +
                  " / RSSI " + String(WiFi.RSSI()) + " dBm");
+
+  // Au premier instant Wi-Fi OK, on revient sur le dernier etat tally (OFF au boot).
+  updateLED();
 }
 
 void setup() {
@@ -489,56 +746,105 @@ void setup() {
 void loop() {
   server.handleClient();
   unsigned long now = millis();
+
+  // Identification visuelle prioritaire.
   if (identifyActive) {
-    if (now - identifyStart >= IDENTIFY_DURATION) { identifyActive = false; updateLED(); }
-    else if ((now / 120) % 2) setRGBPWM(255,255,255); else setRGBPWM(255,0,255);
+    if (now - identifyStart >= IDENTIFY_DURATION) {
+      identifyActive = false;
+      updateLED();
+    } else {
+      if ((now / 120) % 2) setRGBPWM(255,255,255);
+      else setRGBPWM(255,0,255);
+    }
   }
-  if (WiFi.status() != WL_CONNECTED) {
-    if (roamInProgress && now - lastRoamAt > ROAM_CONNECT_TIMEOUT) {
-      roamInProgress = false;
-      Serial.println("[WIFI] Roaming timeout -> reconnexion normale");
-    }
 
-    currentState = STATE_ERROR;
-    updateLED();
-
-    static unsigned long lastReconnect = 0;
-    if (now - lastReconnect > 5000) {
-      lastReconnect = now;
-      WiFi.disconnect();
-      WiFi.config(savedIP(), gateway, subnet, dns);
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    }
-  } else {
-    if (roamInProgress) {
+  // =================================================
+  // ROAMING VOLONTAIRE
+  // =================================================
+  // Pendant toute cette phase on conserve le dernier rouge/vert/off/jaune.
+  // Aucun bleu et aucun faux jaune ne sont montres au cadreur.
+  if (roamInProgress) {
+    if (WiFi.status() == WL_CONNECTED) {
       roamInProgress = false;
       lastGoodTally = now;
+
       Serial.println("[WIFI] Roaming termine -> " + WiFi.BSSIDstr() +
                      " / canal " + String(WiFi.channel()) +
                      " / RSSI " + String(WiFi.RSSI()) + " dBm");
+
+      // Lecture immediate pour reprendre le vrai etat sans attendre le prochain cycle.
+      readTriCaster();
       updateLED();
+    } else if (now - lastRoamAt >= ROAM_CONNECT_TIMEOUT) {
+      // Le roaming a reellement echoue : seulement maintenant on avertit le cadreur.
+      roamInProgress = false;
+      Serial.println("[WIFI] Roaming echoue -> passage en recherche Wi-Fi");
+      startWiFiRecovery(now); // bleu fixe
+    } else {
+      updateLED(); // conserve le dernier tally
+      delay(2);
+      return;
+    }
+  }
+
+  // =================================================
+  // VRAIE PERTE WIFI
+  // =================================================
+  if (WiFi.status() != WL_CONNECTED) {
+    if (wifiRecoveryState == WIFI_NORMAL) {
+      startWiFiRecovery(now);
     }
 
-    handleRoaming(now);
+    processRecovery(now);
+    delay(2);
+    return;
+  }
 
-    // handleRoaming() peut lancer une bascule et couper momentanement le Wi-Fi.
-    if (WiFi.status() == WL_CONNECTED) {
-      if (now - lastPoll >= POLL_INTERVAL) {
-        lastPoll = now;
-        readTriCaster();
-      }
+  // Une reconnexion peut devenir WL_CONNECTED avant le prochain passage.
+  if (wifiRecoveryState != WIFI_NORMAL) {
+    processRecovery(now);
 
-      if (millis() - lastGoodTally > TALLY_TIMEOUT && currentState != STATE_ERROR) {
-        currentState = STATE_ERROR;
-        Serial.println("[TALLY] Perte des donnees TriCaster -> error");
-        updateLED();
-      }
-
-      if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-        lastHeartbeat = now;
-        sendHeartbeat();
-      }
+    if (wifiRecoveryState != WIFI_NORMAL) {
+      delay(2);
+      return;
     }
+  }
+
+  // =================================================
+  // WIFI OK : ROAMING PREVENTIF
+  // =================================================
+  handleRoaming(now);
+
+  // Si handleRoaming vient de lancer une bascule, on gele l'affichage tally.
+  if (roamInProgress || WiFi.status() != WL_CONNECTED) {
+    updateLED();
+    delay(2);
+    return;
+  }
+
+  // =================================================
+  // POLLING TRICASTER
+  // =================================================
+  if (now - lastPoll >= POLL_INTERVAL) {
+    lastPoll = now;
+    readTriCaster();
+  }
+
+  // Pendant un scan de roaming, on ne genere jamais de faux jaune.
+  if (!roamScanRunning &&
+      millis() - lastGoodTally > TALLY_TIMEOUT &&
+      currentState != STATE_ERROR) {
+    currentState = STATE_ERROR;
+    Serial.println("[TALLY] Wi-Fi OK mais perte des donnees TriCaster -> jaune");
+    updateLED();
+  }
+
+  // =================================================
+  // HEARTBEAT MANAGER
+  // =================================================
+  if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+    lastHeartbeat = now;
+    sendHeartbeat();
   }
 
   delay(2);
