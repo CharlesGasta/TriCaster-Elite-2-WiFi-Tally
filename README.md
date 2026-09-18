@@ -350,7 +350,15 @@ L'affectation peut ensuite être modifiée depuis le Manager sans reflasher l'ES
 
 ## Tally Manager V4.1
 
-Fichier :
+### Téléchargement Windows prêt à l'emploi
+
+La dernière version compilée est publiée dans **GitHub Releases** :
+
+https://github.com/CharlesGasta/TriCaster-Elite-2-WiFi-Tally/releases/latest
+
+Téléchargez `TriCaster_Elite2_Tally_Manager.exe`. Si une tâche planifiée Windows lance déjà une ancienne version par un nom de fichier précis, remplacez simplement l'ancien EXE au même emplacement **en conservant exactement le nom attendu par la tâche**.
+
+Fichier source :
 
 ```text
 TriCaster_Elite2_Tally_Manager.py
@@ -428,7 +436,9 @@ Valeur initiale publique :
 ```json
 {
   "api_token": "CHANGE_ME",
-  "ap_aliases": {}
+  "ap_aliases": {},
+  "production_mode": false,
+  "expected_tally_count": 0
 }
 ```
 
@@ -845,7 +855,15 @@ Assignments can later be changed from the Manager without reflashing the tally.
 
 ## Manager V4.1
 
-File:
+### Ready-to-run Windows download
+
+The latest compiled release is available from:
+
+https://github.com/CharlesGasta/TriCaster-Elite-2-WiFi-Tally/releases/latest
+
+Download `TriCaster_Elite2_Tally_Manager.exe`. Existing Windows startup tasks can keep working by replacing the previous executable at the same path while preserving the filename expected by the scheduled task.
+
+Source file:
 
 ```text
 TriCaster_Elite2_Tally_Manager.py
