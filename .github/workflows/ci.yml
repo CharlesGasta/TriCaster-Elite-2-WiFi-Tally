@@ -15,6 +15,14 @@ jobs:
           python-version: "3.12"
       - name: Python syntax check
         run: python -m py_compile TriCaster_Elite2_Tally_Manager.py
+      - name: Manager JavaScript syntax check
+        run: |
+          python - <<'PY'
+          import TriCaster_Elite2_Tally_Manager as manager
+          script = manager.PAGE.split("<script>", 1)[1].split("</script>", 1)[0]
+          open("/tmp/tally-manager.js", "w", encoding="utf-8").write(script)
+          PY
+          node --check /tmp/tally-manager.js
 
   esp8266-firmware:
     runs-on: ubuntu-latest
