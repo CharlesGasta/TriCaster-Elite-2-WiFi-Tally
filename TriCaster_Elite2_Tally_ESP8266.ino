@@ -1,6 +1,8 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266HTTPUpdateServer.h>
+#include <DNSServer.h>
 #include <WiFiUdp.h>
 #include <EEPROM.h>
 
@@ -10,9 +12,14 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
+#define FIRMWARE_VERSION "4.0.0"
 
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// Valeurs utilisees au premier flash / apres reset usine.
+// Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
+// ou depuis le Tally Manager.
+const char* DEFAULT_WIFI_SSID = "YOUR_WIFI_SSID";
+const char* DEFAULT_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* DEFAULT_ADMIN_TOKEN = "CHANGE_ME";
 
 #define PIN_GREEN D1
 #define PIN_RED   D2
@@ -20,7 +27,8 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 #define LED_ON LOW
 #define LED_OFF HIGH
 
-const uint32_t CONFIG_MAGIC = 0xCA12AC06;
+const uint32_t LEGACY_CONFIG_MAGIC = 0xCA12AC06;
+const uint32_t CONFIG_MAGIC = 0xCA12AC08;
 const unsigned long POLL_INTERVAL = 250;
 const unsigned long TALLY_TIMEOUT = 2000;
 const unsigned long HEARTBEAT_INTERVAL = 1000;
@@ -42,7 +50,12 @@ const unsigned long WIFI_CONNECT_TIMEOUT = 8000;
 const unsigned long WIFI_SCAN_RETRY = 1000;
 const unsigned long BLUE_BLINK_INTERVAL = 250;
 
-struct Config {
+// Si aucun Wi-Fi configure n'est joignable au demarrage, le portail
+// TALLY-XX-SETUP est active automatiquement apres ce delai.
+const unsigned long STARTUP_SETUP_TIMEOUT = 30000;
+const byte DNS_PORT = 53;
+
+struct LegacyConfigV3 {
   uint32_t magic;
   char name[32];
   uint8_t ip[4];
@@ -53,9 +66,35 @@ struct Config {
   uint8_t brightness;
 };
 
+struct Config {
+  uint32_t magic;
+
+  char name[32];
+  char ssid[33];
+  char wifiPassword[65];
+  char adminToken[33];
+
+  bool dhcp;
+  uint8_t ip[4];
+  uint8_t gateway[4];
+  uint8_t subnet[4];
+  uint8_t dns[4];
+
+  uint8_t tricaster[4];
+  uint8_t camera;
+
+  uint8_t pgmR, pgmG, pgmB;
+  uint8_t prevR, prevG, prevB;
+  uint8_t brightness;
+};
+
 Config config;
 ESP8266WebServer server(80);
+ESP8266HTTPUpdateServer httpUpdater;
+DNSServer dnsServer;
 WiFiUDP udp;
+
+bool setupPortalActive = false;
 
 enum TallyState { STATE_OFF, STATE_PREVIEW, STATE_PROGRAM, STATE_ERROR };
 enum WiFiRecoveryState { WIFI_NORMAL, WIFI_SEARCHING, WIFI_CONNECTING };
@@ -78,13 +117,29 @@ bool recoveryScanRunning = false;
 unsigned long recoveryConnectStart = 0;
 unsigned long lastRecoveryScanAt = 0;
 
-IPAddress gateway(192, 168, 1, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(192, 168, 1, 1);
+// Supervision / diagnostic
+uint32_t roamCount = 0;
+uint32_t wifiLossCount = 0;
+uint32_t tricasterLossCount = 0;
+unsigned long lastRoamCompletedAt = 0;
+unsigned long lastTriCasterLatency = 0;
+
 IPAddress broadcastIP(192, 168, 1, 255);
 
 IPAddress savedIP() {
   return IPAddress(config.ip[0], config.ip[1], config.ip[2], config.ip[3]);
+}
+
+IPAddress gatewayIP() {
+  return IPAddress(config.gateway[0], config.gateway[1], config.gateway[2], config.gateway[3]);
+}
+
+IPAddress subnetIP() {
+  return IPAddress(config.subnet[0], config.subnet[1], config.subnet[2], config.subnet[3]);
+}
+
+IPAddress dnsIP() {
+  return IPAddress(config.dns[0], config.dns[1], config.dns[2], config.dns[3]);
 }
 
 IPAddress tricasterIP() {
@@ -95,15 +150,48 @@ void copyIP(uint8_t target[4], const IPAddress& source) {
   for (int i = 0; i < 4; i++) target[i] = source[i];
 }
 
+void updateBroadcastIP() {
+  IPAddress local = WiFi.localIP();
+  IPAddress mask = WiFi.subnetMask();
+
+  // En IP statique, certains firmwares renvoient 0.0.0.0 tres tot.
+  if (local == IPAddress(0,0,0,0)) local = savedIP();
+  if (mask == IPAddress(0,0,0,0)) mask = subnetIP();
+
+  for (int i = 0; i < 4; i++) {
+    broadcastIP[i] = local[i] | (uint8_t)(~mask[i]);
+  }
+}
+
+void applyNetworkConfig() {
+  if (!config.dhcp) {
+    WiFi.config(savedIP(), gatewayIP(), subnetIP(), dnsIP());
+  }
+}
+
 void setDefaults() {
   memset(&config, 0, sizeof(config));
   config.magic = CONFIG_MAGIC;
+
   snprintf(config.name, sizeof(config.name), "TALLY-%02d", DEFAULT_TALLY_NUMBER);
+  strlcpy(config.ssid, DEFAULT_WIFI_SSID, sizeof(config.ssid));
+  strlcpy(config.wifiPassword, DEFAULT_WIFI_PASSWORD, sizeof(config.wifiPassword));
+  strlcpy(config.adminToken, DEFAULT_ADMIN_TOKEN, sizeof(config.adminToken));
+
+  config.dhcp = false;
+
   config.ip[0] = 192; config.ip[1] = 168; config.ip[2] = 1;
   config.ip[3] = 80 + constrain(DEFAULT_TALLY_NUMBER, 1, 8);
+
+  config.gateway[0] = 192; config.gateway[1] = 168; config.gateway[2] = 1; config.gateway[3] = 1;
+  config.subnet[0] = 255; config.subnet[1] = 255; config.subnet[2] = 255; config.subnet[3] = 0;
+  config.dns[0] = 192; config.dns[1] = 168; config.dns[2] = 1; config.dns[3] = 1;
+
   config.tricaster[0] = 192; config.tricaster[1] = 168;
   config.tricaster[2] = 1; config.tricaster[3] = 50;
+
   config.camera = constrain(DEFAULT_TALLY_NUMBER, 1, 8);
+
   config.pgmR = 255; config.pgmG = 0; config.pgmB = 0;
   config.prevR = 0; config.prevG = 255; config.prevB = 0;
   config.brightness = 100;
@@ -114,14 +202,45 @@ void saveConfig() {
   EEPROM.commit();
 }
 
+void migrateLegacyConfig(const LegacyConfigV3& legacy) {
+  setDefaults();
+
+  strlcpy(config.name, legacy.name, sizeof(config.name));
+  memcpy(config.ip, legacy.ip, sizeof(config.ip));
+  memcpy(config.tricaster, legacy.tricaster, sizeof(config.tricaster));
+
+  config.camera = legacy.camera;
+  config.pgmR = legacy.pgmR; config.pgmG = legacy.pgmG; config.pgmB = legacy.pgmB;
+  config.prevR = legacy.prevR; config.prevG = legacy.prevG; config.prevB = legacy.prevB;
+  config.brightness = legacy.brightness;
+
+  config.magic = CONFIG_MAGIC;
+  saveConfig();
+
+  Serial.println("[CONFIG] Ancienne configuration migree vers V4");
+}
+
 void loadConfig() {
-  EEPROM.begin(256);
-  EEPROM.get(0, config);
-  if (config.magic != CONFIG_MAGIC || config.name[0] == '\0') {
+  EEPROM.begin(1024);
+
+  uint32_t storedMagic = 0;
+  EEPROM.get(0, storedMagic);
+
+  if (storedMagic == CONFIG_MAGIC) {
+    EEPROM.get(0, config);
+  } else if (storedMagic == LEGACY_CONFIG_MAGIC) {
+    LegacyConfigV3 legacy;
+    EEPROM.get(0, legacy);
+    migrateLegacyConfig(legacy);
+  } else {
     setDefaults();
     saveConfig();
   }
+
   config.name[sizeof(config.name) - 1] = '\0';
+  config.ssid[sizeof(config.ssid) - 1] = '\0';
+  config.wifiPassword[sizeof(config.wifiPassword) - 1] = '\0';
+  config.adminToken[sizeof(config.adminToken) - 1] = '\0';
 }
 
 void setRGBPWM(int r, int g, int b) {
