@@ -179,13 +179,16 @@ function card(d){
   const wifiText=wifiLabels[d.wifi_state]||String(d.wifi_state||'Wi-Fi OK');
   const latency=d.tricaster_latency_ms??'-';
   const uptime=humanMs(d.uptime_ms);
+  const tallyAge=humanMs(d.last_tally_age_ms);
+  const roamAge=Number(d.last_roam_age_ms||0)>0?humanMs(d.last_roam_age_ms):'jamais';
   const losses=`Wi-Fi ${d.wifi_loss_count??0} · TriCaster ${d.tricaster_loss_count??0} · roam ${d.roam_count??0}`;
 
   return `<div class="card">
     <div class="top"><div><div class="name">${safeName}</div>
       <div class="meta">${esc(d.ip||'-')} · <span class="${rssiClass(rssi)}">RSSI ${rssiText}</span> · ${esc(channelText)}</div>
       <div class="meta">AP : ${esc(apLabel)}${d.ap_name?` · ${esc(bssidText)}`:''} · ${esc(wifiText)}</div>
-      <div class="meta diag">FW ${esc(d.firmware||'?')} · TriCaster ${esc(String(latency))} ms · uptime ${esc(uptime)} · pertes : ${esc(losses)}</div>
+      <div class="meta diag">FW ${esc(d.firmware||'?')} · TriCaster ${esc(String(latency))} ms · dernière trame ${esc(tallyAge)} · uptime ${esc(uptime)}</div>
+      <div class="meta diag">Pertes : ${esc(losses)} · dernier roaming : ${esc(roamAge)}</div>
     </div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div>
     <div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div>
 
