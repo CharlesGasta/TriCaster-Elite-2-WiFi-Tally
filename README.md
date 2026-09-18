@@ -67,11 +67,9 @@ Pour l'installation complète :
 
 ## Boîtier 3D et fixation caméra
 
-Le dépôt inclut le fichier 3D du boîtier :
+Le modèle 3D du boîtier et les informations d'impression sont disponibles sur Thingiverse :
 
-```text
-hardware/TALLY_TRICASTER_v6.3mf
-```
+**[Télécharger le modèle 3D sur Thingiverse](https://www.thingiverse.com/thing:7408102)**
 
 Le boîtier est conçu pour être imprimé en **PLA**.
 
@@ -429,11 +427,9 @@ Overall system:
 
 ## 3D-printed enclosure and camera mounting
 
-The repository includes the enclosure model:
+The enclosure 3D model and print information are available on Thingiverse:
 
-```text
-hardware/TALLY_TRICASTER_v6.3mf
-```
+**[Download the 3D model on Thingiverse](https://www.thingiverse.com/thing:7408102)**
 
 The enclosure is designed to be printed in **PLA**.
 
