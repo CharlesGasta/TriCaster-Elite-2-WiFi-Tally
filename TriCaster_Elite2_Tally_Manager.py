@@ -392,7 +392,6 @@ let logsVisible=false;
 document.getElementById('access-url').textContent=window.location.origin+'/mobile';
 
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function jsq(s){return JSON.stringify(String(s))}
 function rgbHex(v){if(!Array.isArray(v))return'#000000';return'#'+v.map(x=>Math.max(0,Math.min(255,Number(x)||0)).toString(16).padStart(2,'0')).join('')}
 function humanMs(ms){ms=Number(ms)||0;if(ms<1000)return ms+' ms';let s=Math.floor(ms/1000);if(s<60)return s+' s';let m=Math.floor(s/60);if(m<60)return m+' min';let h=Math.floor(m/60);if(h<48)return h+' h';return Math.floor(h/24)+' j'}
 function rssiClass(v){v=Number(v);if(v>=-65)return'rssi-good';if(v>=-72)return'rssi-warn';return'rssi-bad'}
@@ -500,7 +499,7 @@ function card(d){
   const onlineDisabled=online?'':'disabled';
   const stateClass=d.state==='program'?'program':d.state==='preview'?'preview':d.state==='error'?'error':'idle';
   const pgm=rgbHex(d.pgm||[255,0,0]),prev=rgbHex(d.preview||[0,255,0]);
-  const name=String(d.name),safeName=esc(name),quotedName=jsq(name);
+  const name=String(d.name),safeName=esc(name);
   let cams='';for(let i=1;i<=32;i++)cams+='<option value="'+i+'" '+(Number(d.camera)===i?'selected':'')+'>CAM '+i+'</option>';
   const rssi=Number(d.rssi??-100),rssiText=online?rssi+' dBm':'--';
   const channelText=online&&d.channel?'CH '+d.channel:'CH --';
