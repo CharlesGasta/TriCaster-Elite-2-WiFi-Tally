@@ -309,154 +309,247 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111111">
-<title>TriCaster Elite 2 Tally Manager V4</title>
+<title>TriCaster Elite 2 Tally Manager V4.1</title>
 <style>
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+*{box-sizing:border-box} html{-webkit-text-size-adjust:100%}
 body{font-family:Arial,sans-serif;background:#111;color:#eee;margin:0;padding:12px;min-height:100vh}
-.wrap{max-width:1500px;margin:auto}
-.header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
-h1{margin:0;font-size:clamp(21px,3vw,29px)}
-.sub{color:#aaa;font-size:13px;margin-top:3px}
+.wrap{max-width:1500px;margin:auto}.header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
+h1{margin:0;font-size:clamp(21px,3vw,29px)}.sub{color:#aaa;font-size:13px;margin-top:3px}
 .access{background:#17251b;border:1px solid #315d3a;border-radius:9px;padding:8px 11px;color:#ccebd2;font-size:12px;max-width:430px}
 .access strong{display:inline;margin-right:6px}.access-url{color:#7ee397;overflow-wrap:anywhere}
-#list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.card{background:#202020;border:1px solid #333;border-radius:10px;padding:11px;min-width:0}
-.top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
-.name{font-size:17px;font-weight:700}.online{color:#4bd36b}.offline{color:#e35555}
-.meta{color:#aaa;font-size:12px;margin-top:3px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px;align-items:end}
-label{display:block;color:#bbb;font-size:11px;margin-bottom:3px}
-select,input[type=range],input[type=color],input[type=text]{width:100%}
-select,input[type=text]{background:#151515;color:#eee;border:1px solid #444;border-radius:7px;padding:7px;font-size:14px}
-input[type=color]{height:34px;background:#151515;border:1px solid #444;border-radius:7px;padding:2px}
-input[type=range]{min-height:30px;touch-action:pan-y}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
-button{border:0;border-radius:7px;padding:7px 5px;min-height:34px;font-size:11px;font-weight:700;cursor:pointer;touch-action:manipulation}
-.ident{background:#7048bd;color:white}.reboot{background:#e29122;color:#111}.save{background:#2775c9;color:#fff}
-.config{margin-top:8px;border-top:1px solid #383838;padding-top:7px}
-.config summary{cursor:pointer;color:#aaa;font-size:12px;font-weight:700;touch-action:manipulation}
-.config-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;margin-top:7px}
-button:disabled{opacity:.45;cursor:not-allowed}
-.state{font-weight:700}.program{color:#ff5757}.preview{color:#4bd36b}.error{color:#f0a020}.idle{color:#aaa}
-.empty{padding:30px;text-align:center;color:#888;grid-column:1/-1}
-.tools{display:grid;grid-template-columns:1.4fr 1fr auto;gap:10px;align-items:center;background:#181818;border:1px solid #333;border-radius:10px;padding:10px;margin-bottom:10px}
-.rssi-good{color:#58d67b}.rssi-warn{color:#f0b84d}.rssi-bad{color:#ff6666}.diag{margin-top:5px;line-height:1.45}
-@media(max-width:650px){body{padding:8px}.header{display:block}.access{margin-top:7px;max-width:none}.tools{grid-template-columns:1fr}.grid{gap:6px}#list{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr 1fr}.config-grid button{grid-column:1/-1}}
+.panel,.tools{background:#181818;border:1px solid #333;border-radius:10px;padding:10px;margin-bottom:10px}
+.safety{display:grid;grid-template-columns:1.5fr auto auto auto;gap:8px;align-items:center}
+.tools{display:grid;grid-template-columns:1.3fr 1fr auto auto;gap:10px;align-items:center}
+button{border:0;border-radius:7px;padding:7px 8px;min-height:34px;font-size:11px;font-weight:700;cursor:pointer;touch-action:manipulation}
+button:disabled{opacity:.45;cursor:not-allowed}.save{background:#2775c9;color:#fff}.ident{background:#7048bd;color:#fff}.reboot{background:#e29122;color:#111}
+.lock-off{background:#2775c9;color:#fff}.lock-on{background:#d83e3e;color:#fff}.preflight{background:#267a43;color:#fff}.logsbtn{background:#555;color:#fff}
+input[type=number],select,input[type=text],input[type=password]{background:#151515;color:#eee;border:1px solid #444;border-radius:7px;padding:7px;font-size:14px}
+input[type=number]{width:90px}select,input[type=range],input[type=color],input[type=text],input[type=password]{width:100%}
+input[type=color]{height:34px;background:#151515;border:1px solid #444;border-radius:7px;padding:2px}input[type=range]{min-height:30px}
+#list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:#202020;border:1px solid #333;border-radius:10px;padding:11px;min-width:0}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.name{font-size:17px;font-weight:700}.online{color:#4bd36b}.offline{color:#e35555}
+.meta{color:#aaa;font-size:12px;margin-top:3px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px;align-items:end}
+label{display:block;color:#bbb;font-size:11px;margin-bottom:3px}.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:9px}
+.config{margin-top:8px;border-top:1px solid #383838;padding-top:7px}.config summary{cursor:pointer;color:#aaa;font-size:12px;font-weight:700}
+.config-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;margin-top:7px}.state{font-weight:700}.program{color:#ff5757}.preview{color:#4bd36b}.error{color:#f0a020}.idle{color:#aaa}
+.rssi-good{color:#58d67b}.rssi-warn{color:#f0b84d}.rssi-bad{color:#ff6666}.diag{margin-top:5px;line-height:1.45}.empty{padding:30px;text-align:center;color:#888;grid-column:1/-1}
+.verdict{font-size:20px;font-weight:800;margin-bottom:8px}.go{color:#58d67b}.attention{color:#f0b84d}.nogo{color:#ff6666}
+.check{padding:5px 0;border-bottom:1px solid #292929;font-size:12px}.check-ok{color:#8bdd9d}.check-warning{color:#f0c263}.check-error{color:#ff7777}
+#preflightPanel,#logsPanel{display:none}.logrow{display:grid;grid-template-columns:150px 70px 145px 100px 1fr;gap:8px;padding:5px 0;border-bottom:1px solid #292929;font-size:11px}
+.ota-pick{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11px;color:#bbb}
+.lockbanner{font-weight:800}.locked-card{border-color:#623838}
+@media(max-width:750px){body{padding:8px}.header{display:block}.access{margin-top:7px;max-width:none}.safety,.tools{grid-template-columns:1fr}.grid{gap:6px}#list{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr 1fr}.config-grid button{grid-column:1/-1}.actions{grid-template-columns:1fr 1fr}.logrow{grid-template-columns:1fr}.logrow span{display:block}}
 </style>
 </head>
 <body>
 <div class="wrap">
-<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1>
-<div class="sub">Version V4 — multi-AP · diagnostic · réseau · OTA</div></div>
+<div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1><div class="sub">Version V4.1 — PRE-FLIGHT · PRODUCTION LOCK · OTA vérifiée · logs persistants</div></div>
 <div class="access"><strong>Accès téléphone :</strong><span class="access-url" id="access-url"></span></div></div>
+
+<div class="panel safety">
+  <div><span class="lockbanner" id="lockLabel">MODE CONFIGURATION</span><div class="sub" id="lockHelp">Les commandes d'administration sont disponibles.</div></div>
+  <div><label>Tally attendus</label><input id="expectedCount" type="number" min="0" max="64" value="0"></div>
+  <button class="preflight" onclick="runPreflight()">CHECK PRODUCTION</button>
+  <button id="lockButton" class="lock-off" onclick="toggleProduction()">VERROUILLER PRODUCTION</button>
+</div>
+
+<div id="preflightPanel" class="panel"></div>
+
 <div class="tools">
-  <div><strong>Firmware OTA</strong><div class="sub">Sélectionner un .bin ESP8266 puis mettre à jour tous les tally actuellement connectés.</div></div>
+  <div><strong>Firmware OTA sécurisé</strong><div class="sub">Chaque boîtier est mis à jour, redémarré puis vérifié avant de passer au suivant. Arrêt au premier échec.</div></div>
   <input type="file" id="firmwareFile" accept=".bin,application/octet-stream">
-  <button class="save" onclick="uploadFirmware()">METTRE À JOUR TOUS LES TALLY</button>
+  <button class="save" id="otaSelected" onclick="uploadFirmware('selected')">MAJ SÉLECTION</button>
+  <button class="reboot" id="otaAll" onclick="uploadFirmware('all')">MAJ TOUS</button>
   <span id="otaStatus" class="sub"></span>
 </div>
+
+<div class="panel">
+  <button class="logsbtn" onclick="toggleLogs()">JOURNAL INCIDENTS</button>
+  <a href="/logs.csv" style="margin-left:8px;color:#8fc3ff;font-size:12px">Exporter CSV</a>
+  <span class="sub" style="margin-left:8px">Wi-Fi · TriCaster · roaming · reboot · OTA · actions opérateur</span>
+</div>
+<div id="logsPanel" class="panel"></div>
+
 <div id="list"><div class="empty">Recherche des tally…</div></div>
 </div>
+
 <script>
-let editingBrightness = {};
-let brightnessTimers = {};
-document.getElementById('access-url').textContent = window.location.origin + '/mobile';
+let editingBrightness={};
+let brightnessTimers={};
+let otaSelection=new Set();
+let productionMode=false;
+let managerState={};
+let logsVisible=false;
+document.getElementById('access-url').textContent=window.location.origin+'/mobile';
+
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function jsq(s){return JSON.stringify(String(s))}
-function rgbHex(v){if(!Array.isArray(v)) return '#000000';return '#'+v.map(x=>Math.max(0,Math.min(255,Number(x)||0)).toString(16).padStart(2,'0')).join('')}
-async function api(name,action,params={}){const q=new URLSearchParams({name,action,...params});const r=await fetch('/api?'+q.toString(),{cache:'no-store'});if(!r.ok) alert(await r.text())}
-function sendBrightness(name,value){const output=document.getElementById('bv-'+name);if(output) output.textContent=value+'%';clearTimeout(brightnessTimers[name]);brightnessTimers[name]=setTimeout(()=>api(name,'brightness',{value}),100)}
+function rgbHex(v){if(!Array.isArray(v))return'#000000';return'#'+v.map(x=>Math.max(0,Math.min(255,Number(x)||0)).toString(16).padStart(2,'0')).join('')}
 function humanMs(ms){ms=Number(ms)||0;if(ms<1000)return ms+' ms';let s=Math.floor(ms/1000);if(s<60)return s+' s';let m=Math.floor(s/60);if(m<60)return m+' min';let h=Math.floor(m/60);if(h<48)return h+' h';return Math.floor(h/24)+' j'}
 function rssiClass(v){v=Number(v);if(v>=-65)return'rssi-good';if(v>=-72)return'rssi-warn';return'rssi-bad'}
-async function uploadFirmware(){
-  const input=document.getElementById('firmwareFile'), status=document.getElementById('otaStatus');
-  const file=input.files&&input.files[0];
-  if(!file)return alert('Sélectionne un fichier .bin.');
-  if(!confirm('Mettre à jour tous les tally actuellement connectés avec '+file.name+' ?'))return;
-  status.textContent='Mise à jour en cours…';
-  try{
-    const r=await fetch('/ota-upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':file.name},body:file});
-    const text=await r.text();status.textContent=text;if(!r.ok)alert(text);
-  }catch(e){status.textContent='Erreur OTA : '+e}
+
+async function api(name,action,params={}){
+  const q=new URLSearchParams({name:name||'',action,...params});
+  const r=await fetch('/api?'+q.toString(),{cache:'no-store'});
+  const text=await r.text();
+  if(!r.ok){alert(text);throw new Error(text)}
+  return text;
 }
-async function saveSettings(name){const cam=document.getElementById('cam-'+name), pgm=document.getElementById('pgm-'+name), prev=document.getElementById('prev-'+name);if(cam&&pgm&&prev) await api(name,'save',{camera:cam.value,pgm:pgm.value,preview:prev.value})}
+
+async function refreshManagerState(){
+  try{
+    const r=await fetch('/manager-state',{cache:'no-store'}),s=await r.json();
+    managerState=s;productionMode=!!s.production_mode;
+    document.getElementById('expectedCount').value=s.expected_tally_count??0;
+    const b=document.getElementById('lockButton'),label=document.getElementById('lockLabel'),help=document.getElementById('lockHelp');
+    if(productionMode){
+      b.textContent='DÉVERROUILLER';b.className='lock-on';label.textContent='🔒 MODE PRODUCTION ACTIF';
+      help.textContent='OTA, reboot, Identify, affectations, couleurs et configuration réseau sont bloqués.';
+    }else{
+      b.textContent='VERROUILLER PRODUCTION';b.className='lock-off';label.textContent='MODE CONFIGURATION';
+      help.textContent='Les commandes d’administration sont disponibles.';
+    }
+    document.getElementById('otaSelected').disabled=productionMode;
+    document.getElementById('otaAll').disabled=productionMode;
+  }catch(e){}
+}
+
+async function toggleProduction(){
+  const enable=!productionMode;
+  const msg=enable?'Activer le MODE PRODUCTION ? Les commandes dangereuses seront bloquées.':'DÉVERROUILLER le système et réautoriser les modifications ?';
+  if(!confirm(msg))return;
+  await api('','production_mode',{value:enable?'1':'0'});
+  await refreshManagerState();await refresh();
+}
+
+async function saveExpected(){
+  const value=document.getElementById('expectedCount').value||'0';
+  await api('','expected_count',{value});
+}
+
+document.getElementById('expectedCount').addEventListener('change',saveExpected);
+
+async function runPreflight(){
+  const panel=document.getElementById('preflightPanel');panel.style.display='block';panel.innerHTML='Contrôle en cours…';
+  try{
+    const r=await fetch('/preflight',{cache:'no-store'}),p=await r.json();
+    const klass=p.verdict==='GO'?'go':p.verdict==='NO-GO'?'nogo':'attention';
+    panel.innerHTML='<div class="verdict '+klass+'">'+esc(p.verdict)+'</div><div class="sub">'+esc(p.timestamp)+' · '+p.errors+' erreur(s) · '+p.warnings+' avertissement(s)</div>'+
+      p.checks.map(x=>'<div class="check check-'+x.level.toLowerCase()+'"><strong>'+esc(x.level)+'</strong> — '+esc(x.title)+' : '+esc(x.detail)+'</div>').join('');
+  }catch(e){panel.innerHTML='<div class="verdict nogo">ERREUR PRE-FLIGHT</div>'+esc(e)}
+}
+
+function otaToggle(name,checked){if(checked)otaSelection.add(name);else otaSelection.delete(name)}
+
+async function uploadFirmware(mode,singleName=''){
+  if(productionMode)return alert('Mode Production actif : OTA bloquée.');
+  const input=document.getElementById('firmwareFile'),status=document.getElementById('otaStatus');
+  const file=input.files&&input.files[0];if(!file)return alert('Sélectionne un fichier .bin.');
+  let targets='';
+  if(mode==='single')targets=singleName;
+  else if(mode==='selected'){targets=[...otaSelection].join(',');if(!targets)return alert('Sélectionne au moins un tally.');}
+  const label=mode==='all'?'TOUS les tally en ligne':(mode==='single'?singleName:targets);
+  if(!confirm('Lancer l’OTA vérifiée sur '+label+' ? Le déploiement s’arrête au premier échec.'))return;
+  status.textContent='OTA en cours : ne ferme pas cette page…';
+  try{
+    const q=new URLSearchParams();if(targets)q.set('targets',targets);q.set('stop_on_failure','1');
+    const r=await fetch('/ota-upload?'+q.toString(),{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':file.name},body:file});
+    const data=await r.json();
+    status.textContent=data.message||'OTA terminée';
+    if(!r.ok||data.failures?.length)alert((data.message||'OTA')+'\n'+(data.failures||[]).join('\n'));
+    await refresh();
+  }catch(e){status.textContent='Erreur OTA : '+e;alert(status.textContent)}
+}
+
+async function saveSettings(name){
+  const cam=document.getElementById('cam-'+name),pgm=document.getElementById('pgm-'+name),prev=document.getElementById('prev-'+name);
+  if(cam&&pgm&&prev)await api(name,'save',{camera:cam.value,pgm:pgm.value,preview:prev.value});
+}
+function sendBrightness(name,value){const o=document.getElementById('bv-'+name);if(o)o.textContent=value+'%';clearTimeout(brightnessTimers[name]);brightnessTimers[name]=setTimeout(()=>api(name,'brightness',{value}).catch(()=>{}),100)}
 async function saveNetwork(oldName){
   const g=id=>document.getElementById(id+'-'+oldName);
-  const newName=g('new-name').value.trim(), dhcp=g('dhcp').checked?'1':'0';
-  const params={new_name:newName,dhcp,ssid:g('ssid').value.trim(),wifi_password:g('wifi-pass').value,
-    new_ip:g('new-ip').value.trim(),gateway:g('gateway').value.trim(),subnet:g('subnet').value.trim(),
-    dns:g('dns').value.trim(),tricaster:g('tricaster').value.trim()};
+  const newName=g('new-name').value.trim(),dhcp=g('dhcp').checked?'1':'0';
+  const params={new_name:newName,dhcp,ssid:g('ssid').value.trim(),wifi_password:g('wifi-pass').value,new_ip:g('new-ip').value.trim(),gateway:g('gateway').value.trim(),subnet:g('subnet').value.trim(),dns:g('dns').value.trim(),tricaster:g('tricaster').value.trim()};
   if(!newName)return alert('Le nom est obligatoire.');
   if(!confirm('Appliquer la configuration réseau à '+oldName+' ? Le tally va redémarrer.'))return;
   await api(oldName,'config',params);
 }
-async function saveApAlias(name){
-  const input=document.getElementById('ap-alias-'+name);
-  if(!input)return;
-  await api(name,'ap_alias',{alias:input.value.trim()});
-}
-function card(d){
-  const online=d.online, disabled=online?'':'disabled';
-  const stateClass=d.state==='program'?'program':d.state==='preview'?'preview':d.state==='error'?'error':'idle';
-  const pgm=rgbHex(d.pgm||[255,0,0]), prev=rgbHex(d.preview||[0,255,0]);
-  const name=String(d.name), safeName=esc(name), quotedName=jsq(name);
-  let cams='';for(let i=1;i<=32;i++) cams+=`<option value="${i}" ${Number(d.camera)===i?'selected':''}>CAM ${i}</option>`;
+async function saveApAlias(name){const i=document.getElementById('ap-alias-'+name);if(i)await api(name,'ap_alias',{alias:i.value.trim()})}
 
-  const rssi=Number(d.rssi??-100), rssiText=online?`${rssi} dBm`:'--';
-  const channelText=online&&d.channel?`CH ${d.channel}`:'CH --';
+async function toggleLogs(){logsVisible=!logsVisible;document.getElementById('logsPanel').style.display=logsVisible?'block':'none';if(logsVisible)await refreshLogs()}
+async function refreshLogs(){
+  if(!logsVisible)return;
+  try{
+    const r=await fetch('/logs?limit=150',{cache:'no-store'}),rows=await r.json();
+    document.getElementById('logsPanel').innerHTML=rows.length?rows.map(x=>'<div class="logrow"><span>'+esc(x.timestamp)+'</span><span>'+esc(x.level)+'</span><span>'+esc(x.event)+'</span><span>'+esc(x.tally)+'</span><span>'+esc(x.details)+'</span></div>').join(''):'<div class="sub">Aucun événement enregistré.</div>';
+  }catch(e){}
+}
+
+function card(d){
+  const online=d.online;
+  const adminDisabled=(online&&!productionMode)?'':'disabled';
+  const onlineDisabled=online?'':'disabled';
+  const stateClass=d.state==='program'?'program':d.state==='preview'?'preview':d.state==='error'?'error':'idle';
+  const pgm=rgbHex(d.pgm||[255,0,0]),prev=rgbHex(d.preview||[0,255,0]);
+  const name=String(d.name),safeName=esc(name),quotedName=jsq(name);
+  let cams='';for(let i=1;i<=32;i++)cams+='<option value="'+i+'" '+(Number(d.camera)===i?'selected':'')+'>CAM '+i+'</option>';
+  const rssi=Number(d.rssi??-100),rssiText=online?rssi+' dBm':'--';
+  const channelText=online&&d.channel?'CH '+d.channel:'CH --';
   const bssidText=online&&d.bssid?String(d.bssid):'--:--:--:--:--:--';
   const apLabel=d.ap_name||bssidText;
   const wifiLabels={connected:'Wi-Fi OK',roaming:'ROAMING',searching:'RECHERCHE Wi-Fi',connecting:'CONNEXION Wi-Fi'};
   const wifiText=wifiLabels[d.wifi_state]||String(d.wifi_state||'Wi-Fi OK');
-  const latency=d.tricaster_latency_ms??'-';
-  const uptime=humanMs(d.uptime_ms);
-  const tallyAge=humanMs(d.last_tally_age_ms);
-  const roamAge=Number(d.last_roam_age_ms||0)>0?humanMs(d.last_roam_age_ms):'jamais';
-  const losses=`Wi-Fi ${d.wifi_loss_count??0} · TriCaster ${d.tricaster_loss_count??0} · roam ${d.roam_count??0}`;
-
-  return `<div class="card">
-    <div class="top"><div><div class="name">${safeName}</div>
-      <div class="meta">${esc(d.ip||'-')} · <span class="${rssiClass(rssi)}">RSSI ${rssiText}</span> · ${esc(channelText)}</div>
-      <div class="meta">AP : ${esc(apLabel)}${d.ap_name?` · ${esc(bssidText)}`:''} · ${esc(wifiText)}</div>
-      <div class="meta diag">FW ${esc(d.firmware||'?')} · TriCaster ${esc(String(latency))} ms · dernière trame ${esc(tallyAge)} · uptime ${esc(uptime)}</div>
-      <div class="meta diag">Pertes : ${esc(losses)} · dernier roaming : ${esc(roamAge)}</div>
-    </div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div>
-    <div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div>
-
-    <div class="grid">
-      <div><label>Caméra attribuée</label><select id="cam-${safeName}" onchange='saveSettings(${quotedName})' ${disabled}>${cams}</select></div>
-      <div><label>Couleur PROGRAM</label><input type="color" id="pgm-${safeName}" value="${pgm}" onchange='saveSettings(${quotedName})' ${disabled}></div>
-      <div><label>Luminosité : <span id="bv-${safeName}">${d.brightness??100}%</span></label><input type="range" min="1" max="100" value="${d.brightness??100}" id="b-${safeName}" onpointerdown='editingBrightness[${quotedName}]=true' onpointerup='editingBrightness[${quotedName}]=false' onpointercancel='editingBrightness[${quotedName}]=false' oninput='sendBrightness(${quotedName},this.value)' ${disabled}></div>
-      <div><label>Couleur PREVIEW</label><input type="color" id="prev-${safeName}" value="${prev}" onchange='saveSettings(${quotedName})' ${disabled}></div>
-    </div>
-
-    <div class="actions"><button class="ident" ${disabled} onclick='api(${quotedName},"identify")'>IDENTIFY</button><button class="reboot" ${disabled} onclick='if(confirm("Redémarrer "+${quotedName}+" ?")) api(${quotedName},"reboot")'>REBOOT</button></div>
-
-    <details class="config" data-tally="${safeName}"><summary>CONFIGURATION RÉSEAU / BOÎTIER</summary>
-      <div class="config-grid">
-        <div><label>Nom / cadreur</label><input type="text" id="new-name-${safeName}" maxlength="31" value="${safeName}" ${disabled}></div>
-        <div><label>SSID</label><input type="text" id="ssid-${safeName}" maxlength="32" value="${esc(d.ssid||'')}" ${disabled}></div>
-        <div><label>Mot de passe Wi-Fi (vide = inchangé)</label><input type="password" id="wifi-pass-${safeName}" maxlength="64" ${disabled}></div>
-        <div><label>TriCaster</label><input type="text" id="tricaster-${safeName}" value="${esc(d.tricaster||'192.168.1.50')}" ${disabled}></div>
-        <div><label><input type="checkbox" id="dhcp-${safeName}" ${d.dhcp?'checked':''} ${disabled}> DHCP</label></div>
-        <div><label>Adresse IP fixe</label><input type="text" id="new-ip-${safeName}" value="${esc(d.ip||'192.168.1.81')}" ${disabled}></div>
-        <div><label>Gateway</label><input type="text" id="gateway-${safeName}" value="${esc(d.gateway||'192.168.1.1')}" ${disabled}></div>
-        <div><label>Subnet</label><input type="text" id="subnet-${safeName}" value="${esc(d.subnet||'255.255.255.0')}" ${disabled}></div>
-        <div><label>DNS</label><input type="text" id="dns-${safeName}" value="${esc(d.dns||d.gateway||'192.168.1.1')}" ${disabled}></div>
-        <button class="save" ${disabled} onclick='saveNetwork(${quotedName})'>ENREGISTRER RÉSEAU</button>
-      </div>
-      <div class="config-grid">
-        <div><label>Nom convivial de l'AP actuel</label><input type="text" id="ap-alias-${safeName}" value="${esc(d.ap_name||'')}" placeholder="ex. AP TERRAIN" ${disabled}></div>
-        <div><label>BSSID</label><input type="text" value="${esc(bssidText)}" disabled></div>
-        <button class="save" ${disabled} onclick='saveApAlias(${quotedName})'>NOMMER CET AP</button>
-      </div>
-    </details>
-  </div>`;
+  const latency=d.tricaster_latency_ms??'-',uptime=humanMs(d.uptime_ms),tallyAge=humanMs(d.last_tally_age_ms),roamAge=Number(d.last_roam_age_ms||0)>0?humanMs(d.last_roam_age_ms):'jamais';
+  const losses='Wi-Fi '+(d.wifi_loss_count??0)+' · TriCaster '+(d.tricaster_loss_count??0)+' · roam '+(d.roam_count??0);
+  const checked=otaSelection.has(name)?'checked':'';
+  return '<div class="card '+(productionMode?'locked-card':'')+'">'+
+    '<div class="top"><div><div class="name">'+safeName+'</div>'+
+    '<div class="meta">'+esc(d.ip||'-')+' · <span class="'+rssiClass(rssi)+'">RSSI '+rssiText+'</span> · '+esc(channelText)+'</div>'+
+    '<div class="meta">AP : '+esc(apLabel)+(d.ap_name?' · '+esc(bssidText):'')+' · '+esc(wifiText)+'</div>'+
+    '<div class="meta diag">FW '+esc(d.firmware||'?')+' · TriCaster '+esc(String(latency))+' ms · dernière trame '+esc(tallyAge)+' · uptime '+esc(uptime)+'</div>'+
+    '<div class="meta diag">Pertes : '+esc(losses)+' · dernier roaming : '+esc(roamAge)+'</div></div>'+
+    '<div class="'+(online?'online':'offline')+'">● '+(online?'CONNECTÉ':'HORS LIGNE')+'</div></div>'+
+    '<div class="meta">État : <span class="state '+stateClass+'">'+esc((d.state||'off').toUpperCase())+'</span></div>'+
+    '<div class="ota-pick"><input type="checkbox" '+checked+' '+(productionMode||!online?'disabled':'')+' onchange="otaToggle('+quotedName+',this.checked)"> Inclure dans la MAJ sélectionnée</div>'+
+    '<div class="grid">'+
+      '<div><label>Caméra attribuée</label><select id="cam-'+safeName+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'>'+cams+'</select></div>'+
+      '<div><label>Couleur PROGRAM</label><input type="color" id="pgm-'+safeName+'" value="'+pgm+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'></div>'+
+      '<div><label>Luminosité : <span id="bv-'+safeName+'">'+(d.brightness??100)+'%</span></label><input type="range" min="1" max="100" value="'+(d.brightness??100)+'" id="b-'+safeName+'" onpointerdown="editingBrightness['+quotedName+']=true" onpointerup="editingBrightness['+quotedName+']=false" oninput="sendBrightness('+quotedName+',this.value)" '+adminDisabled+'></div>'+
+      '<div><label>Couleur PREVIEW</label><input type="color" id="prev-'+safeName+'" value="'+prev+'" onchange="saveSettings('+quotedName+')" '+adminDisabled+'></div>'+
+    '</div>'+
+    '<div class="actions"><button class="ident" '+adminDisabled+' onclick="api('+quotedName+',\'identify\')">IDENTIFY</button>'+
+    '<button class="reboot" '+adminDisabled+' onclick="if(confirm(\'Redémarrer '+safeName+' ?\'))api('+quotedName+',\'reboot\')">REBOOT</button>'+
+    '<button class="save" '+adminDisabled+' onclick="uploadFirmware(\'single\','+quotedName+')">OTA CE TALLY</button></div>'+
+    '<details class="config" data-tally="'+safeName+'"><summary>CONFIGURATION RÉSEAU / BOÎTIER</summary><div class="config-grid">'+
+      '<div><label>Nom / cadreur</label><input type="text" id="new-name-'+safeName+'" maxlength="31" value="'+safeName+'" '+adminDisabled+'></div>'+
+      '<div><label>SSID</label><input type="text" id="ssid-'+safeName+'" maxlength="32" value="'+esc(d.ssid||'')+'" '+adminDisabled+'></div>'+
+      '<div><label>Mot de passe Wi-Fi (vide = inchangé)</label><input type="password" id="wifi-pass-'+safeName+'" maxlength="64" '+adminDisabled+'></div>'+
+      '<div><label>TriCaster</label><input type="text" id="tricaster-'+safeName+'" value="'+esc(d.tricaster||'192.168.1.50')+'" '+adminDisabled+'></div>'+
+      '<div><label><input type="checkbox" id="dhcp-'+safeName+'" '+(d.dhcp?'checked':'')+' '+adminDisabled+'> DHCP</label></div>'+
+      '<div><label>Adresse IP fixe</label><input type="text" id="new-ip-'+safeName+'" value="'+esc(d.ip||'192.168.1.81')+'" '+adminDisabled+'></div>'+
+      '<div><label>Gateway</label><input type="text" id="gateway-'+safeName+'" value="'+esc(d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
+      '<div><label>Subnet</label><input type="text" id="subnet-'+safeName+'" value="'+esc(d.subnet||'255.255.255.0')+'" '+adminDisabled+'></div>'+
+      '<div><label>DNS</label><input type="text" id="dns-'+safeName+'" value="'+esc(d.dns||d.gateway||'192.168.1.1')+'" '+adminDisabled+'></div>'+
+      '<button class="save" '+adminDisabled+' onclick="saveNetwork('+quotedName+')">ENREGISTRER RÉSEAU</button></div>'+
+      '<div class="config-grid"><div><label>Nom convivial de l\'AP actuel</label><input type="text" id="ap-alias-'+safeName+'" value="'+esc(d.ap_name||'')+'" placeholder="ex. AP TERRAIN" '+onlineDisabled+'></div>'+
+      '<div><label>BSSID</label><input type="text" value="'+esc(bssidText)+'" disabled></div><button class="save" '+onlineDisabled+' onclick="saveApAlias('+quotedName+')">NOMMER CET AP</button></div>'+
+    '</details></div>';
 }
 
-async function refresh(){try{const r=await fetch('/devices',{cache:'no-store'}), ds=await r.json();const someoneEditing=Object.values(editingBrightness).some(v=>v===true), active=document.activeElement;const controlFocused=active&&(active.tagName==='INPUT'||active.tagName==='SELECT');if(someoneEditing||controlFocused)return;const openConfigs=new Set([...document.querySelectorAll('details.config[open]')].map(el=>el.dataset.tally).filter(Boolean));document.getElementById('list').innerHTML=ds.length?ds.map(card).join(''):'<div class="empty">Aucun tally détecté.</div>';document.querySelectorAll('details.config').forEach(el=>{if(openConfigs.has(el.dataset.tally)) el.open=true})}catch(e){}}
-refresh();setInterval(refresh,1000);
+async function refresh(){
+  try{
+    const r=await fetch('/devices',{cache:'no-store'}),ds=await r.json();
+    const someoneEditing=Object.values(editingBrightness).some(v=>v===true),active=document.activeElement;
+    const controlFocused=active&&(active.tagName==='INPUT'||active.tagName==='SELECT');
+    if(someoneEditing||controlFocused)return;
+    const openConfigs=new Set([...document.querySelectorAll('details.config[open]')].map(el=>el.dataset.tally).filter(Boolean));
+    document.getElementById('list').innerHTML=ds.length?ds.map(card).join(''):'<div class="empty">Aucun tally détecté.</div>';
+    document.querySelectorAll('details.config').forEach(el=>{if(openConfigs.has(el.dataset.tally))el.open=true});
+  }catch(e){}
+}
+
+async function tick(){await refreshManagerState();await refresh();await refreshLogs()}
+tick();setInterval(tick,1000);
 </script>
 </body>
 </html>"""
