@@ -112,6 +112,8 @@ unsigned long lastRoamCheck = 0;
 unsigned long lastRoamAt = 0;
 bool roamScanRunning = false;
 bool roamInProgress = false;
+bool roamTargetValid = false;
+uint8_t roamTargetBssid[6] = {0,0,0,0,0,0};
 
 bool recoveryScanRunning = false;
 unsigned long recoveryConnectStart = 0;
@@ -916,6 +918,8 @@ void processRoamScan(unsigned long now) {
     WiFi.scanDelete();
 
     roamInProgress = true;
+    roamTargetValid = true;
+    memcpy(roamTargetBssid, bestBssid, 6);
     lastRoamAt = now;
 
     // IMPORTANT : aucune LED de connexion ici.
@@ -1201,8 +1205,15 @@ void loop() {
   // Pendant toute cette phase on conserve le dernier rouge/vert/off/jaune.
   // Aucun bleu et aucun faux jaune ne sont montres au cadreur.
   if (roamInProgress) {
-    if (WiFi.status() == WL_CONNECTED) {
+    const uint8_t* connectedBssid = WiFi.BSSID();
+    bool targetReached = WiFi.status() == WL_CONNECTED &&
+                         roamTargetValid &&
+                         connectedBssid &&
+                         sameBSSID(connectedBssid, roamTargetBssid);
+
+    if (targetReached) {
       roamInProgress = false;
+      roamTargetValid = false;
       roamCount++;
       lastRoamCompletedAt = now;
       updateBroadcastIP();
@@ -1218,6 +1229,7 @@ void loop() {
     } else if (now - lastRoamAt >= ROAM_CONNECT_TIMEOUT) {
       // Le roaming a reellement echoue : seulement maintenant on avertit le cadreur.
       roamInProgress = false;
+      roamTargetValid = false;
       Serial.println("[WIFI] Roaming echoue -> passage en recherche Wi-Fi");
       startWiFiRecovery(now); // bleu fixe
     } else {
