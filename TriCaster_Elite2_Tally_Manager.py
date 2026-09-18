@@ -1,4 +1,4 @@
-"""TriCaster Elite 2 Tally Manager - version finale de production V2."""
+"""TriCaster Elite 2 Tally Manager - version production V3 (multi-AP diagnostics)."""
 
 import json
 import socket
@@ -21,7 +21,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111111">
-<title>TriCaster Elite 2 Tally Manager FINAL V2</title>
+<title>TriCaster Elite 2 Tally Manager V3</title>
 <style>
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -58,7 +58,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <body>
 <div class="wrap">
 <div class="header"><div><h1>TriCaster Elite 2 Tally Manager</h1>
-<div class="sub">Version finale V2 — administration des tally autonomes</div></div>
+<div class="sub">Version V3 — administration des tally autonomes · diagnostic multi-AP</div></div>
 <div class="access"><strong>Accès téléphone :</strong><span class="access-url" id="access-url"></span></div></div>
 <div id="list"><div class="empty">Recherche des tally…</div></div>
 </div>
@@ -80,7 +80,11 @@ function card(d){
   const name=String(d.name), safeName=esc(name), quotedName=jsq(name);
   let cams='';for(let i=1;i<=16;i++) cams+=`<option value="${i}" ${Number(d.camera)===i?'selected':''}>CAM ${i}</option>`;
   const rssiText=online?`${d.rssi??'-'} dBm`:'--';
-  return `<div class="card"><div class="top"><div><div class="name">${safeName}</div><div class="meta">${esc(d.ip||'-')} · RSSI ${rssiText}</div></div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div><div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div><div class="grid"><div><label>Caméra attribuée</label><select id="cam-${safeName}" onchange='saveSettings(${quotedName})' ${disabled}>${cams}</select></div><div><label>Couleur PROGRAM</label><input type="color" id="pgm-${safeName}" value="${pgm}" onchange='saveSettings(${quotedName})' ${disabled}></div><div><label>Luminosité : <span id="bv-${safeName}">${d.brightness??100}%</span></label><input type="range" min="1" max="100" value="${d.brightness??100}" id="b-${safeName}" onpointerdown='editingBrightness[${quotedName}]=true' onpointerup='editingBrightness[${quotedName}]=false' onpointercancel='editingBrightness[${quotedName}]=false' oninput='sendBrightness(${quotedName},this.value)' ${disabled}></div><div><label>Couleur PREVIEW</label><input type="color" id="prev-${safeName}" value="${prev}" onchange='saveSettings(${quotedName})' ${disabled}></div></div><div class="actions"><button class="ident" ${disabled} onclick='api(${quotedName},"identify")'>IDENTIFY</button><button class="reboot" ${disabled} onclick='if(confirm("Redémarrer "+${quotedName}+" ?")) api(${quotedName},"reboot")'>REBOOT</button></div><details class="config" data-tally="${safeName}"><summary>CONFIGURATION DU BOÎTIER</summary><div class="config-grid"><div><label>Nom / cadreur</label><input type="text" id="new-name-${safeName}" maxlength="31" value="${safeName}" ${disabled}></div><div><label>Adresse IP fixe</label><input type="text" id="new-ip-${safeName}" inputmode="decimal" value="${esc(d.ip||'192.168.1.81')}" ${disabled}></div><button class="save" ${disabled} onclick='saveNetwork(${quotedName})'>ENREGISTRER</button></div></details></div>`;
+  const channelText=online&&d.channel?`CH ${d.channel}`:'CH --';
+  const bssidText=online&&d.bssid?String(d.bssid):'--:--:--:--:--:--';
+  const wifiLabels={connected:'Wi-Fi OK',roaming:'ROAMING',searching:'RECHERCHE Wi-Fi',connecting:'CONNEXION Wi-Fi'};
+  const wifiText=wifiLabels[d.wifi_state]||String(d.wifi_state||'Wi-Fi OK');
+  return `<div class="card"><div class="top"><div><div class="name">${safeName}</div><div class="meta">${esc(d.ip||'-')} · RSSI ${rssiText} · ${esc(channelText)}</div><div class="meta">AP/BSSID : ${esc(bssidText)} · ${esc(wifiText)}</div></div><div class="${online?'online':'offline'}">● ${online?'CONNECTÉ':'HORS LIGNE'}</div></div><div class="meta">État : <span class="state ${stateClass}">${esc((d.state||'off').toUpperCase())}</span></div><div class="grid"><div><label>Caméra attribuée</label><select id="cam-${safeName}" onchange='saveSettings(${quotedName})' ${disabled}>${cams}</select></div><div><label>Couleur PROGRAM</label><input type="color" id="pgm-${safeName}" value="${pgm}" onchange='saveSettings(${quotedName})' ${disabled}></div><div><label>Luminosité : <span id="bv-${safeName}">${d.brightness??100}%</span></label><input type="range" min="1" max="100" value="${d.brightness??100}" id="b-${safeName}" onpointerdown='editingBrightness[${quotedName}]=true' onpointerup='editingBrightness[${quotedName}]=false' onpointercancel='editingBrightness[${quotedName}]=false' oninput='sendBrightness(${quotedName},this.value)' ${disabled}></div><div><label>Couleur PREVIEW</label><input type="color" id="prev-${safeName}" value="${prev}" onchange='saveSettings(${quotedName})' ${disabled}></div></div><div class="actions"><button class="ident" ${disabled} onclick='api(${quotedName},"identify")'>IDENTIFY</button><button class="reboot" ${disabled} onclick='if(confirm("Redémarrer "+${quotedName}+" ?")) api(${quotedName},"reboot")'>REBOOT</button></div><details class="config" data-tally="${safeName}"><summary>CONFIGURATION DU BOÎTIER</summary><div class="config-grid"><div><label>Nom / cadreur</label><input type="text" id="new-name-${safeName}" maxlength="31" value="${safeName}" ${disabled}></div><div><label>Adresse IP fixe</label><input type="text" id="new-ip-${safeName}" inputmode="decimal" value="${esc(d.ip||'192.168.1.81')}" ${disabled}></div><button class="save" ${disabled} onclick='saveNetwork(${quotedName})'>ENREGISTRER</button></div></details></div>`;
 }
 async function refresh(){try{const r=await fetch('/devices',{cache:'no-store'}), ds=await r.json();const someoneEditing=Object.values(editingBrightness).some(v=>v===true), active=document.activeElement;const controlFocused=active&&(active.tagName==='INPUT'||active.tagName==='SELECT');if(someoneEditing||controlFocused)return;const openConfigs=new Set([...document.querySelectorAll('details.config[open]')].map(el=>el.dataset.tally).filter(Boolean));document.getElementById('list').innerHTML=ds.length?ds.map(card).join(''):'<div class="empty">Aucun tally détecté.</div>';document.querySelectorAll('details.config').forEach(el=>{if(openConfigs.has(el.dataset.tally)) el.open=true})}catch(e){}}
 refresh();setInterval(refresh,1000);
@@ -244,7 +248,7 @@ def main():
     local_ip = get_local_ip()
     print()
     print("====================================")
-    print("   TRICASTER ELITE 2 TALLY MANAGER FINAL V2")
+    print("   TRICASTER ELITE 2 TALLY MANAGER V3 - MULTI-AP")
     print("====================================")
     print(f"PC local          : http://127.0.0.1:{HTTP_PORT}")
     print(f"TÉLÉPHONE (Wi-Fi) : http://{local_ip}:{HTTP_PORT}/mobile")
