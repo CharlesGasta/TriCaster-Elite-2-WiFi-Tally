@@ -1,11 +1,13 @@
-"""TriCaster Elite 2 Tally Manager - production V4.
+"""TriCaster Elite 2 Tally Manager - production V4.1.
 
-Multi-AP diagnostics, persistent configuration, authenticated ESP control,
-network configuration and fleet OTA updates.
+Adds production pre-flight checks, production lock, verified staged OTA
+deployments and persistent incident/event logging.
 """
 
 import base64
+import csv
 import hmac
+import io
 import json
 import os
 import socket
@@ -17,21 +19,30 @@ import urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+MANAGER_VERSION = "4.1.0"
 HTTP_PORT = 8099
 UDP_PORT = 4210
 OFFLINE_AFTER = 3.5
 MAX_OTA_SIZE = 4 * 1024 * 1024
+OTA_VERIFY_TIMEOUT = 50.0
+PREFLIGHT_RSSI_WARN = -72
+PREFLIGHT_RSSI_FAIL = -80
+PREFLIGHT_LATENCY_WARN = 250
+PREFLIGHT_LATENCY_FAIL = 1000
 
 APP_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 CONFIG_FILE = APP_DIR / "tally_manager_config.json"
+EVENT_LOG_FILE = APP_DIR / "tally_manager_events.csv"
 
 devices = {}
 devices_lock = threading.Lock()
 config_lock = threading.Lock()
+event_log_lock = threading.Lock()
 
 manager_config = {
     "api_token": "CHANGE_ME",
-    "ap_aliases": {}
+    "ap_aliases": {},
+    "production_mode": False
 }
 
 
@@ -47,6 +58,7 @@ def load_manager_config():
             manager_config["ap_aliases"] = {}
         if not manager_config.get("api_token"):
             manager_config["api_token"] = "CHANGE_ME"
+        manager_config["production_mode"] = bool(manager_config.get("production_mode", False))
         if not existed:
             save_manager_config()
     except Exception as error:
@@ -70,6 +82,211 @@ def basic_auth_header(token=None):
     token = current_token() if token is None else str(token)
     raw = f"admin:{token}".encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
+
+
+def is_production_mode():
+    with config_lock:
+        return bool(manager_config.get("production_mode", False))
+
+
+def set_production_mode(enabled):
+    with config_lock:
+        manager_config["production_mode"] = bool(enabled)
+    save_manager_config()
+    log_event(
+        "PRODUCTION_LOCK",
+        details="ACTIVE" if enabled else "DESACTIVE",
+        level="WARNING" if enabled else "INFO"
+    )
+
+
+def log_event(event_type, tally="", details="", level="INFO"):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    row = [timestamp, str(level), str(event_type), str(tally), str(details)]
+    with event_log_lock:
+        new_file = not EVENT_LOG_FILE.exists()
+        with EVENT_LOG_FILE.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            if new_file:
+                writer.writerow(["timestamp", "level", "event", "tally", "details"])
+            writer.writerow(row)
+    print(f"[{level}] {event_type}" + (f" {tally}" if tally else "") + (f" - {details}" if details else ""))
+
+
+def read_events(limit=200):
+    if not EVENT_LOG_FILE.exists():
+        return []
+    with event_log_lock:
+        try:
+            with EVENT_LOG_FILE.open("r", newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        except Exception:
+            return []
+    if limit > 0:
+        rows = rows[-limit:]
+    return list(reversed(rows))
+
+
+def device_online(device, now=None):
+    now = time.time() if now is None else now
+    return bool(device.get("last_seen")) and (now - float(device.get("last_seen", 0))) <= OFFLINE_AFTER
+
+
+def preflight_report():
+    now = time.time()
+    with devices_lock:
+        snapshot = {name: dict(device) for name, device in devices.items()}
+
+    checks = []
+    errors = 0
+    warnings = 0
+
+    def add(level, title, detail):
+        nonlocal errors, warnings
+        if level == "ERROR":
+            errors += 1
+        elif level == "WARNING":
+            warnings += 1
+        checks.append({"level": level, "title": title, "detail": detail})
+
+    if not snapshot:
+        add("ERROR", "Aucun tally", "Aucun boitier n'a ete detecte par le Manager.")
+    else:
+        online = {name: d for name, d in snapshot.items() if device_online(d, now)}
+        offline = sorted(set(snapshot) - set(online))
+
+        if offline:
+            add("ERROR", "Tally hors ligne", ", ".join(offline))
+        else:
+            add("OK", "Tous les tally detectes sont en ligne", f"{len(online)}/{len(snapshot)}")
+
+        ips = {}
+        cameras = {}
+        firmwares = {}
+        tricaster_ips = {}
+
+        for name, device in sorted(online.items()):
+            ip = str(device.get("ip") or "")
+            if ip:
+                ips.setdefault(ip, []).append(name)
+
+            camera = int(device.get("camera") or 0)
+            if camera:
+                cameras.setdefault(camera, []).append(name)
+
+            firmware = str(device.get("firmware") or "?")
+            firmwares.setdefault(firmware, []).append(name)
+
+            tricaster = str(device.get("tricaster") or "")
+            if tricaster:
+                tricaster_ips.setdefault(tricaster, []).append(name)
+
+            rssi = int(device.get("rssi") or -100)
+            if rssi < PREFLIGHT_RSSI_FAIL:
+                add("ERROR", f"{name} RSSI critique", f"{rssi} dBm")
+            elif rssi < PREFLIGHT_RSSI_WARN:
+                add("WARNING", f"{name} RSSI faible", f"{rssi} dBm")
+
+            latency = int(device.get("tricaster_latency_ms") or 0)
+            if latency >= PREFLIGHT_LATENCY_FAIL:
+                add("ERROR", f"{name} latence TriCaster critique", f"{latency} ms")
+            elif latency >= PREFLIGHT_LATENCY_WARN:
+                add("WARNING", f"{name} latence TriCaster elevee", f"{latency} ms")
+
+            if str(device.get("wifi_state") or "") not in ("connected",):
+                add("WARNING", f"{name} etat Wi-Fi", str(device.get("wifi_state") or "inconnu"))
+
+            if str(device.get("state") or "") == "error":
+                add("ERROR", f"{name} ne recoit plus le TriCaster", "Etat tally ERROR")
+
+            tally_age = int(device.get("last_tally_age_ms") or 0)
+            if tally_age > 2500:
+                add("ERROR", f"{name} donnees tally trop anciennes", f"{tally_age} ms")
+
+            if not str(device.get("bssid") or ""):
+                add("WARNING", f"{name} BSSID absent", "Impossible d'identifier le point d'acces.")
+
+            channel = int(device.get("channel") or 0)
+            if channel and channel not in (1, 6, 11):
+                add("WARNING", f"{name} canal 2,4 GHz", f"Canal {channel}; 1/6/11 recommandes en 20 MHz.")
+
+        duplicate_ips = {ip: names for ip, names in ips.items() if len(names) > 1}
+        if duplicate_ips:
+            for ip, names in duplicate_ips.items():
+                add("ERROR", "Doublon IP", f"{ip}: {', '.join(names)}")
+        elif online:
+            add("OK", "Adresses IP uniques", f"{len(ips)} IP controlees")
+
+        duplicate_cameras = {cam: names for cam, names in cameras.items() if len(names) > 1}
+        if duplicate_cameras:
+            for cam, names in duplicate_cameras.items():
+                add("ERROR", "Doublon camera", f"CAM {cam}: {', '.join(names)}")
+        elif online:
+            add("OK", "Affectations camera uniques", f"{len(cameras)} cameras controlees")
+
+        if len(firmwares) > 1:
+            add("WARNING", "Versions firmware differentes", " | ".join(f"{fw}: {', '.join(names)}" for fw, names in firmwares.items()))
+        elif online:
+            add("OK", "Firmware homogene", next(iter(firmwares.keys()), "?"))
+
+        if len(tricaster_ips) > 1:
+            add("ERROR", "IP TriCaster incoherentes", " | ".join(f"{ip}: {', '.join(names)}" for ip, names in tricaster_ips.items()))
+        elif online:
+            add("OK", "IP TriCaster coherente", next(iter(tricaster_ips.keys()), "?"))
+
+    if current_token() == "CHANGE_ME":
+        add("WARNING", "Token administrateur par defaut", "CHANGE_ME doit etre remplace sur un reseau partage.")
+
+    verdict = "NO-GO" if errors else ("ATTENTION" if warnings else "GO")
+    report = {
+        "verdict": verdict,
+        "errors": errors,
+        "warnings": warnings,
+        "checks": checks,
+        "production_mode": is_production_mode(),
+        "manager_version": MANAGER_VERSION,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    log_event("PREFLIGHT", details=f"{verdict} - {errors} erreur(s), {warnings} avertissement(s)",
+              level="ERROR" if errors else ("WARNING" if warnings else "INFO"))
+    return report
+
+
+def wait_for_ota_recovery(name, old_uptime, started_at, timeout=OTA_VERIFY_TIMEOUT):
+    deadline = time.time() + timeout
+    last_error = "aucune reponse"
+
+    while time.time() < deadline:
+        with devices_lock:
+            device = dict(devices.get(name, {}))
+
+        ip = str(device.get("ip") or "")
+        if ip:
+            try:
+                info = json.loads(esp_get(ip, "/status", timeout=1.2))
+                new_uptime = int(info.get("uptime_ms") or 0)
+                reboot_seen = (
+                    (old_uptime and new_uptime < old_uptime)
+                    or (not old_uptime and time.time() - started_at >= 4.0)
+                )
+                healthy = (
+                    str(info.get("wifi_state") or "") == "connected"
+                    and str(info.get("state") or "") != "error"
+                    and int(info.get("last_tally_age_ms") or 999999) <= 2500
+                )
+                if reboot_seen and healthy:
+                    with devices_lock:
+                        if name in devices:
+                            devices[name].update(info)
+                            devices[name]["last_seen"] = time.time()
+                    return True, f"OK - FW {info.get('firmware', '?')} - TriCaster {info.get('tricaster_latency_ms', '?')} ms"
+                if reboot_seen and not healthy:
+                    last_error = "ESP revenu mais pas encore sain"
+            except Exception as error:
+                last_error = str(error)
+        time.sleep(1.0)
+
+    return False, f"verification timeout ({last_error})"
 
 PAGE = r"""<!doctype html>
 <html lang="fr">
