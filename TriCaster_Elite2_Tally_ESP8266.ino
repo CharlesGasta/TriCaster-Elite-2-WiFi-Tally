@@ -12,7 +12,7 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
-#define FIRMWARE_VERSION "4.0.0"
+#define FIRMWARE_VERSION "4.1.0"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
