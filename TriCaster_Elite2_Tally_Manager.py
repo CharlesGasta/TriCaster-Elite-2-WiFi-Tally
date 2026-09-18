@@ -622,6 +622,7 @@ def udp_listener():
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("", UDP_PORT))
     print(f"[UDP] écoute des tally sur le port {UDP_PORT}")
+
     while True:
         data, addr = sock.recvfrom(4096)
         try:
@@ -629,18 +630,75 @@ def udp_listener():
             name = msg.get("name")
             if not name:
                 continue
+
+            now = time.time()
             msg["ip"] = msg.get("ip") or addr[0]
-            msg["last_seen"] = time.time()
+            msg["last_seen"] = now
+
             with devices_lock:
                 first_seen = name not in devices
-                old = devices.get(name, {})
-                old.update(msg)
-                devices[name] = old
+                old = dict(devices.get(name, {}))
+
+                recovered = bool(old.get("_offline_logged"))
+                old_bssid = str(old.get("bssid") or "")
+                new_bssid = str(msg.get("bssid") or "")
+                old_fw = str(old.get("firmware") or "")
+                new_fw = str(msg.get("firmware") or "")
+                old_wifi_loss = int(old.get("wifi_loss_count") or 0)
+                new_wifi_loss = int(msg.get("wifi_loss_count") or 0)
+                old_tc_loss = int(old.get("tricaster_loss_count") or 0)
+                new_tc_loss = int(msg.get("tricaster_loss_count") or 0)
+                old_state = str(old.get("state") or "")
+                new_state = str(msg.get("state") or "")
+
+                merged = old
+                merged.update(msg)
+                merged["_offline_logged"] = False
+                devices[name] = merged
+
             if first_seen:
+                log_event("DEVICE_DISCOVERED", name, f"{msg['ip']} - FW {msg.get('firmware', '?')}")
                 threading.Thread(target=refresh_device_details, args=(msg["ip"], name), daemon=True).start()
-                print(f"[TALLY] {name} détecté à {msg['ip']}")
-        except Exception:
-            pass
+            elif recovered:
+                log_event("DEVICE_RECOVERED", name, f"{msg['ip']}")
+
+            if old_bssid and new_bssid and old_bssid != new_bssid:
+                log_event("ROAM", name, f"{old_bssid} -> {new_bssid} / CH {msg.get('channel', '?')}")
+
+            if old_fw and new_fw and old_fw != new_fw:
+                log_event("FIRMWARE_CHANGED", name, f"{old_fw} -> {new_fw}")
+
+            if new_wifi_loss > old_wifi_loss:
+                log_event("WIFI_LOSS", name, f"compteur {old_wifi_loss} -> {new_wifi_loss}", "WARNING")
+
+            if new_tc_loss > old_tc_loss:
+                log_event("TRICASTER_LOSS", name, f"compteur {old_tc_loss} -> {new_tc_loss}", "WARNING")
+
+            if new_state == "error" and old_state != "error":
+                log_event("TALLY_ERROR", name, "Communication TriCaster perdue", "ERROR")
+            elif old_state == "error" and new_state != "error":
+                log_event("TALLY_RECOVERED", name, f"Etat {new_state}")
+
+        except Exception as error:
+            print(f"[UDP] trame ignoree: {error}")
+
+
+def offline_monitor():
+    while True:
+        now = time.time()
+        to_log = []
+
+        with devices_lock:
+            for name, device in devices.items():
+                last_seen = float(device.get("last_seen", 0) or 0)
+                if last_seen and now - last_seen > OFFLINE_AFTER and not device.get("_offline_logged"):
+                    device["_offline_logged"] = True
+                    to_log.append((name, str(device.get("ip") or "")))
+
+        for name, ip in to_log:
+            log_event("DEVICE_OFFLINE", name, ip, "ERROR")
+
+        time.sleep(1.0)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -652,6 +710,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype + "; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_bytes(self, code, body, ctype, filename=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
 
@@ -680,6 +748,38 @@ class Handler(BaseHTTPRequestHandler):
             self.send_text(200, PAGE, "text/html")
             return
 
+        if parsed.path == "/manager-state":
+            with config_lock:
+                state = {
+                    "manager_version": MANAGER_VERSION,
+                    "production_mode": bool(manager_config.get("production_mode", False)),
+                    "expected_tally_count": int(manager_config.get("expected_tally_count", 0) or 0)
+                }
+            self.send_text(200, json.dumps(state, ensure_ascii=False), "application/json")
+            return
+
+        if parsed.path == "/preflight":
+            self.send_text(200, json.dumps(preflight_report(), ensure_ascii=False), "application/json")
+            return
+
+        if parsed.path == "/logs":
+            q = urllib.parse.parse_qs(parsed.query)
+            try:
+                limit = max(1, min(2000, int(q.get("limit", ["200"])[0])))
+            except ValueError:
+                limit = 200
+            self.send_text(200, json.dumps(read_events(limit), ensure_ascii=False), "application/json")
+            return
+
+        if parsed.path == "/logs.csv":
+            if EVENT_LOG_FILE.exists():
+                with event_log_lock:
+                    body = EVENT_LOG_FILE.read_bytes()
+            else:
+                body = b"timestamp,level,event,tally,details\r\n"
+            self.send_bytes(200, body, "text/csv; charset=utf-8", "tally_manager_events.csv")
+            return
+
         if parsed.path == "/devices":
             now = time.time()
             with config_lock:
@@ -688,7 +788,7 @@ class Handler(BaseHTTPRequestHandler):
             with devices_lock:
                 result = []
                 for name, device in sorted(devices.items()):
-                    item = dict(device)
+                    item = {k: v for k, v in device.items() if not str(k).startswith("_")}
                     item["online"] = (now - item.get("last_seen", 0)) <= OFFLINE_AFTER
                     bssid = str(item.get("bssid") or "")
                     item["ap_name"] = aliases.get(bssid, "")
@@ -701,6 +801,29 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query)
             name = q.get("name", [""])[0]
             action = q.get("action", [""])[0]
+
+            if action == "production_mode":
+                enabled = q.get("value", ["0"])[0] == "1"
+                set_production_mode(enabled)
+                self.send_text(200, "OK", "text/plain")
+                return
+
+            if action == "expected_count":
+                try:
+                    value = max(0, min(64, int(q.get("value", ["0"])[0])))
+                except ValueError:
+                    self.send_text(400, "Nombre de tally invalide", "text/plain")
+                    return
+                with config_lock:
+                    manager_config["expected_tally_count"] = value
+                save_manager_config()
+                log_event("EXPECTED_COUNT", details=str(value))
+                self.send_text(200, "OK", "text/plain")
+                return
+
+            if is_production_mode() and action in {"brightness", "identify", "reboot", "config", "save"}:
+                self.send_text(423, "MODE PRODUCTION ACTIF : commande bloquee.", "text/plain")
+                return
 
             if action == "ap_alias":
                 with devices_lock:
@@ -718,6 +841,7 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         aliases.pop(bssid, None)
                 save_manager_config()
+                log_event("AP_ALIAS", name, f"{bssid} = {alias or '(supprime)'}")
                 self.send_text(200, "OK", "text/plain")
                 return
 
@@ -737,11 +861,14 @@ class Handler(BaseHTTPRequestHandler):
                     with devices_lock:
                         if name in devices:
                             devices[name]["brightness"] = value
+                    log_event("BRIGHTNESS", name, f"{value}%")
 
                 elif action == "identify":
                     esp_get(ip, "/identify")
+                    log_event("IDENTIFY", name)
 
                 elif action == "reboot":
+                    log_event("REBOOT_REQUEST", name, ip, "WARNING")
                     try:
                         esp_get(ip, "/reboot")
                     except Exception:
@@ -788,6 +915,7 @@ class Handler(BaseHTTPRequestHandler):
                         "tricaster": tricaster
                     }
 
+                    log_event("CONFIG_CHANGE", name, f"nom={new_name}, dhcp={dhcp}, ip={new_ip or 'DHCP'}, tricaster={tricaster}", "WARNING")
                     esp_post_form(ip, "/config", params, timeout=3.0)
 
                     with devices_lock:
@@ -811,6 +939,7 @@ class Handler(BaseHTTPRequestHandler):
                         "vr": prev[0], "vg": prev[1], "vb": prev[2]
                     }
                     esp_get(ip, "/colors?" + urllib.parse.urlencode(params))
+                    log_event("TALLY_SETTINGS", name, f"CAM {camera} / PGM {q.get('pgm', [''])[0]} / PREV {q.get('preview', [''])[0]}")
                     refresh_device_details(ip, name)
 
                 else:
