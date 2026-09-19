@@ -949,9 +949,23 @@ Replace `CHANGE_ME` with the **same token configured on the ESP units** before u
 
 > Administration uses HTTP on the local LAN. Keep the tally network private / isolated and do not expose these endpoints directly to the Internet.
 
+### Firmware files: `.ino` and `.bin`
+
+Every firmware build now publishes **both files together** in the GitHub Actions artifact:
+
+```text
+TriCaster_Elite2_Tally_ESP8266.ino
+TriCaster_Elite2_Tally_ESP8266.bin
+```
+
+Why both are provided:
+
+- `.ino` = Arduino source code. Use this when an ESP cannot reach the Manager, after a full flash erase, or when flashing directly over USB from Arduino IDE.
+- `.bin` = already-compiled firmware. Use this for OTA updates from the Tally Manager; Arduino IDE does not open it as a sketch.
+
 ### OTA firmware update
 
-1. Compile the ESP8266 firmware in Arduino IDE and export the compiled `.bin`.
+1. Use the compiled `.bin` from the matching GitHub firmware artifact.
 2. Open Manager V4.1.
 3. Select the `.bin` file under **Firmware OTA**.
 4. Click **UPDATE ALL TALLY UNITS** / the corresponding V4.1 update button.
