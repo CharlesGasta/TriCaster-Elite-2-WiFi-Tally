@@ -677,13 +677,17 @@ For critical productions, power the **router + PoE switch + main APs from a UPS*
 
 Every AP has a different **BSSID**, even when all APs use the same SSID. The tally keeps its IP address and automatically selects a better BSSID when necessary.
 
-Default roaming parameters:
+Default V4.2 roaming parameters:
 
 ```cpp
-const int ROAM_RSSI_TRIGGER = -70;
-const int ROAM_MIN_GAIN = 8;
-const unsigned long ROAM_COOLDOWN = 15000;
+const int ROAM_RSSI_TRIGGER = -72;
+const int ROAM_MIN_GAIN = 10;
+const unsigned long ROAM_SCAN_INTERVAL = 30000;
+const unsigned long ROAM_COOLDOWN = 30000;
+const unsigned long ROAM_STARTUP_GRACE = 30000;
 ```
+
+Initial connection and recovery use standard **SSID + password** association. A specific BSSID is forced only during an intentional roaming handoff to a clearly stronger AP. No proactive roaming scan is allowed during the first 30 seconds after a Wi-Fi connection.
 
 The tally therefore stays on its current AP while the link remains usable and only moves when another AP is clearly better, preventing ping-pong roaming in overlap areas.
 
@@ -949,9 +953,26 @@ Replace `CHANGE_ME` with the **same token configured on the ESP units** before u
 
 > Administration uses HTTP on the local LAN. Keep the tally network private / isolated and do not expose these endpoints directly to the Internet.
 
+### Firmware V4.2 clean baseline
+
+V4.2 is the cleaned production baseline after hardware testing isolated a defective ESP8266 module. The temporary test-specific TALLY-04 source has been removed from the repository.
+
+Kept in V4.2 because they are useful independently of that hardware fault:
+
+- standard SSID/password association for initial Wi-Fi connection and recovery
+- DHCP or static IP
+- setup portal after failed startup connection
+- explicit current DHCP IP in status data
+- Wi-Fi disconnect reason logging and ESP station MAC in Serial Monitor
+- direct TriCaster polling at 250 ms
+- PROGRAM / PREVIEW / ERROR LED states
+- Manager heartbeat and diagnostics
+- authenticated OTA
+- conservative multi-AP roaming with a 30 s grace period, -72 dBm trigger and 10 dB minimum gain
+
 ### Firmware files: `.ino` and `.bin`
 
-Every firmware build now publishes **both files together** in the GitHub Actions artifact:
+Every firmware build publishes **both files together** in the GitHub Actions artifact:
 
 ```text
 TriCaster_Elite2_Tally_ESP8266.ino
