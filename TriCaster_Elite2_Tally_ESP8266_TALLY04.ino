@@ -12,7 +12,7 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 4
-#define FIRMWARE_VERSION "4.1.2"
+#define FIRMWARE_VERSION "4.1.3"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
@@ -93,6 +93,7 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 DNSServer dnsServer;
 WiFiUDP udp;
+WiFiEventHandler wifiDisconnectedHandler;
 
 bool setupPortalActive = false;
 
@@ -173,6 +174,8 @@ void applyNetworkConfig() {
   }
 }
 
+String formatBSSID(const uint8_t* bssid);
+
 String wifiStatusName(wl_status_t status) {
   switch (status) {
     case WL_IDLE_STATUS: return "IDLE";
@@ -185,6 +188,16 @@ String wifiStatusName(wl_status_t status) {
     case WL_DISCONNECTED: return "DISCONNECTED";
     default: return String((int)status);
   }
+}
+
+void installWiFiDiagnostics() {
+  wifiDisconnectedHandler = WiFi.onStationModeDisconnected(
+    [](const WiFiEventStationModeDisconnected& event) {
+      Serial.println("[WIFI] EVENT deconnexion STA : SSID=" + event.ssid +
+                     " / BSSID=" + formatBSSID(event.bssid) +
+                     " / reason=" + String(event.reason));
+    }
+  );
 }
 
 void setDefaults() {
@@ -1182,6 +1195,7 @@ void connectWiFi() {
 
 void setup() {
   Serial.begin(115200);
+  installWiFiDiagnostics();
   pinMode(PIN_RED, OUTPUT); pinMode(PIN_GREEN, OUTPUT); pinMode(PIN_BLUE, OUTPUT);
   analogWriteRange(1023); analogWriteFreq(1000);
   loadConfig(); ledsOff(); startupAnimation();
