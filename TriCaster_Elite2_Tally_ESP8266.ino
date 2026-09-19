@@ -174,6 +174,8 @@ void applyNetworkConfig() {
   }
 }
 
+String formatBSSID(const uint8_t* bssid);
+
 String wifiStatusName(wl_status_t status) {
   switch (status) {
     case WL_IDLE_STATUS: return "IDLE";
