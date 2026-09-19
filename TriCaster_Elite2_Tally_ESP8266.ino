@@ -11,8 +11,8 @@
 // Modifier uniquement ce numéro avant le premier flash.
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
-#define DEFAULT_TALLY_NUMBER 3
-#define FIRMWARE_VERSION "4.1.4"
+#define DEFAULT_TALLY_NUMBER 1
+#define FIRMWARE_VERSION "4.2.0"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
@@ -37,17 +37,18 @@ const unsigned long IDENTIFY_DURATION = 5000;
 // Roaming Wi-Fi entre plusieurs points d'acces utilisant le meme SSID.
 // Le scan ne se lance que si le signal devient faible afin de ne pas
 // perturber inutilement le polling tally.
-const int ROAM_RSSI_TRIGGER = -70;               // dBm : commencer a chercher un meilleur AP
-const int ROAM_MIN_GAIN = 8;                     // dB  : gain minimum avant de basculer
-const unsigned long ROAM_SCAN_INTERVAL = 10000; // ms  : intervalle entre deux verifications
-const unsigned long ROAM_COOLDOWN = 15000;      // ms  : evite les bascules aller/retour
-const unsigned long ROAM_CONNECT_TIMEOUT = 8000;// ms  : abandon d'une tentative de roaming
+const int ROAM_RSSI_TRIGGER = -72;                // dBm : chercher un meilleur AP seulement si necessaire
+const int ROAM_MIN_GAIN = 10;                    // dB  : evite les bascules pour un faible gain
+const unsigned long ROAM_SCAN_INTERVAL = 30000;  // ms  : limite les scans radio
+const unsigned long ROAM_COOLDOWN = 30000;       // ms  : evite le ping-pong entre AP
+const unsigned long ROAM_CONNECT_TIMEOUT = 8000; // ms  : abandon d'une tentative de roaming
+const unsigned long ROAM_STARTUP_GRACE = 30000;  // ms  : aucun roaming juste apres une connexion
 
-// V4.1.4: proactive roaming scans are disabled for stability.
-// ESP8266 channel scans can interrupt live traffic/heartbeats and, on some APs,
-// can destabilize the station link. The tally keeps its current AP while it is
-// connected and reconnects by SSID only after a real Wi-Fi loss.
-const bool PROACTIVE_ROAMING_ENABLED = false;
+// Roaming proactif active pour les installations multi-AP.
+// La connexion initiale et la reconnexion apres perte restent des connexions
+// standard SSID + mot de passe. Le BSSID n'est force que lors d'un roaming
+// volontaire vers un AP clairement meilleur.
+const bool PROACTIVE_ROAMING_ENABLED = true;
 
 // Reconnexion apres une vraie perte Wi-Fi.
 // Bleu fixe = recherche du SSID.
@@ -117,6 +118,7 @@ unsigned long lastHeartbeat = 0;
 
 unsigned long lastRoamCheck = 0;
 unsigned long lastRoamAt = 0;
+unsigned long wifiConnectedAt = 0;
 bool roamScanRunning = false;
 bool roamInProgress = false;
 bool roamTargetValid = false;
@@ -215,7 +217,7 @@ void setDefaults() {
   strlcpy(config.wifiPassword, DEFAULT_WIFI_PASSWORD, sizeof(config.wifiPassword));
   strlcpy(config.adminToken, DEFAULT_ADMIN_TOKEN, sizeof(config.adminToken));
 
-  config.dhcp = false;
+  config.dhcp = true;
 
   config.ip[0] = 192; config.ip[1] = 168; config.ip[2] = 1;
   config.ip[3] = 80 + constrain(DEFAULT_TALLY_NUMBER, 1, 8);
@@ -984,6 +986,7 @@ void processRoamScan(unsigned long now) {
 
 void handleRoaming(unsigned long now) {
   if (!PROACTIVE_ROAMING_ENABLED) return;
+  if (wifiConnectedAt == 0 || now - wifiConnectedAt < ROAM_STARTUP_GRACE) return;
 
   if (roamScanRunning) {
     processRoamScan(now);
@@ -1042,6 +1045,7 @@ void processRecovery(unsigned long now) {
       wifiRecoveryState = WIFI_NORMAL;
       recoveryConnectStart = 0;
       updateBroadcastIP();
+      wifiConnectedAt = now;
 
       // On laisse 2 s au TriCaster pour repondre avant un eventuel jaune.
       lastGoodTally = now;
@@ -1190,6 +1194,7 @@ void connectWiFi() {
 
   wifiRecoveryState = WIFI_NORMAL;
   updateBroadcastIP();
+  wifiConnectedAt = millis();
   lastGoodTally = millis();
 
   Serial.println("[WIFI] Connecte a " + WiFi.BSSIDstr() +
@@ -1216,9 +1221,7 @@ void setup() {
   Serial.println(); Serial.println("TRICASTER ELITE 2 WIFI TALLY");
   Serial.println(String(config.name) + " - " + WiFi.localIP().toString());
   Serial.println("TriCaster - " + tricasterIP().toString());
-  if (!PROACTIVE_ROAMING_ENABLED) {
-    Serial.println("[WIFI] Roaming proactif desactive (mode stabilite V4.1.4)");
-  }
+  Serial.println("[WIFI] Roaming proactif multi-AP : actif");
 }
 
 void loop() {
@@ -1254,6 +1257,7 @@ void loop() {
       roamCount++;
       lastRoamCompletedAt = now;
       updateBroadcastIP();
+      wifiConnectedAt = now;
       lastGoodTally = now;
 
       Serial.println("[WIFI] Roaming termine -> " + WiFi.BSSIDstr() +
