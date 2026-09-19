@@ -102,11 +102,28 @@ jobs:
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir "$GITHUB_WORKSPACE/build" /tmp/TriCasterTally
           cp TriCaster_Elite2_Tally_ESP8266.ino "$GITHUB_WORKSPACE/build/TriCaster_Elite2_Tally_ESP8266.ino"
           cp "$GITHUB_WORKSPACE/build/TriCasterTally.ino.bin" "$GITHUB_WORKSPACE/build/TriCaster_Elite2_Tally_ESP8266.bin"
-      - name: Upload firmware source + binary
+
+          rm -rf /tmp/TriCasterTally04
+          mkdir -p /tmp/TriCasterTally04
+          cp TriCaster_Elite2_Tally_ESP8266_TALLY04.ino /tmp/TriCasterTally04/TriCasterTally04.ino
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir "$GITHUB_WORKSPACE/build_tally04" /tmp/TriCasterTally04
+          cp TriCaster_Elite2_Tally_ESP8266_TALLY04.ino "$GITHUB_WORKSPACE/build_tally04/TriCaster_Elite2_Tally_ESP8266_TALLY04.ino"
+          cp "$GITHUB_WORKSPACE/build_tally04/TriCasterTally04.ino.bin" "$GITHUB_WORKSPACE/build_tally04/TriCaster_Elite2_Tally_ESP8266_TALLY04.bin"
+
+      - name: Upload generic firmware source + binary
         uses: actions/upload-artifact@v4
         with:
           name: TriCaster_Elite2_Tally_ESP8266_Source_and_BIN
           path: |
             build/TriCaster_Elite2_Tally_ESP8266.ino
             build/TriCaster_Elite2_Tally_ESP8266.bin
+          if-no-files-found: error
+
+      - name: Upload TALLY-04 source + binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: TriCaster_Elite2_Tally_ESP8266_TALLY04_Source_and_BIN
+          path: |
+            build_tally04/TriCaster_Elite2_Tally_ESP8266_TALLY04.ino
+            build_tally04/TriCaster_Elite2_Tally_ESP8266_TALLY04.bin
           if-no-files-found: error
