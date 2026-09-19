@@ -12,7 +12,7 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
-#define FIRMWARE_VERSION "4.1.1"
+#define FIRMWARE_VERSION "4.1.2"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
@@ -170,6 +170,20 @@ void applyNetworkConfig() {
     WiFi.config(IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0));
   } else {
     WiFi.config(savedIP(), gatewayIP(), subnetIP(), dnsIP());
+  }
+}
+
+String wifiStatusName(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS: return "IDLE";
+    case WL_NO_SSID_AVAIL: return "NO_SSID";
+    case WL_SCAN_COMPLETED: return "SCAN_COMPLETED";
+    case WL_CONNECTED: return "CONNECTED";
+    case WL_CONNECT_FAILED: return "CONNECT_FAILED";
+    case WL_CONNECTION_LOST: return "CONNECTION_LOST";
+    case WL_WRONG_PASSWORD: return "WRONG_PASSWORD";
+    case WL_DISCONNECTED: return "DISCONNECTED";
+    default: return String((int)status);
   }
 }
 
@@ -1020,7 +1034,7 @@ void processRecovery(unsigned long now) {
     }
 
     if (now - recoveryConnectStart >= WIFI_CONNECT_TIMEOUT) {
-      Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
+      Serial.println("[WIFI] Echec de connexion (" + wifiStatusName(WiFi.status()) + ") -> nouvelle recherche");
       WiFi.disconnect(false);
       wifiRecoveryState = WIFI_SEARCHING;
       recoveryConnectStart = 0;
@@ -1057,12 +1071,13 @@ void processRecovery(unsigned long now) {
 
         WiFi.scanDelete();
 
-        Serial.println("[WIFI] Reseau retrouve -> connexion a " + targetBssid +
+        Serial.println("[WIFI] Reseau retrouve -> AP visible " + targetBssid +
                        " / canal " + String(bestChannel) +
                        " / RSSI " + String(bestRssi) + " dBm");
+        Serial.println("[WIFI] Reconnexion standard par SSID (BSSID non force)");
 
         applyNetworkConfig();
-        WiFi.begin(config.ssid, config.wifiPassword, bestChannel, bestBssid, true);
+        WiFi.begin(config.ssid, config.wifiPassword);
 
         wifiRecoveryState = WIFI_CONNECTING;
         recoveryConnectStart = now;
@@ -1114,19 +1129,13 @@ void connectWiFi() {
 
       WiFi.scanDelete();
 
-      Serial.println("[WIFI] Reseau trouve -> tentative de connexion a " +
+      Serial.println("[WIFI] Reseau trouve -> AP visible " +
                      targetBssid + " / canal " + String(bestChannel) +
                      " / RSSI " + String(bestRssi) + " dBm");
+      Serial.println("[WIFI] Connexion initiale standard par SSID (BSSID non force)");
 
       applyNetworkConfig();
-
-      WiFi.begin(
-        config.ssid,
-        config.wifiPassword,
-        bestChannel,
-        bestBssid,
-        true
-      );
+      WiFi.begin(config.ssid, config.wifiPassword);
 
       wifiRecoveryState = WIFI_CONNECTING;
       unsigned long connectStart = millis();
@@ -1140,7 +1149,7 @@ void connectWiFi() {
       }
 
       if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[WIFI] Echec de connexion -> nouvelle recherche");
+        Serial.println("[WIFI] Echec de connexion (" + wifiStatusName(WiFi.status()) + ") -> nouvelle recherche");
         WiFi.disconnect(false);
         wifiRecoveryState = WIFI_SEARCHING;
         updateLED();
