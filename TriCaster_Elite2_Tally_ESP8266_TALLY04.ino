@@ -1196,6 +1196,8 @@ void connectWiFi() {
 void setup() {
   Serial.begin(115200);
   installWiFiDiagnostics();
+  Serial.println();
+  Serial.println("[WIFI] MAC STA : " + WiFi.macAddress());
   pinMode(PIN_RED, OUTPUT); pinMode(PIN_GREEN, OUTPUT); pinMode(PIN_BLUE, OUTPUT);
   analogWriteRange(1023); analogWriteFreq(1000);
   loadConfig(); ledsOff(); startupAnimation();
