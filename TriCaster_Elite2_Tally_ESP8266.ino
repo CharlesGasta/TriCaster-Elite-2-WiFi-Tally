@@ -12,7 +12,7 @@
 // Exemple public : 1 = 192.168.1.81, 2 = .82, ... 8 = .88
 // =====================================================
 #define DEFAULT_TALLY_NUMBER 3
-#define FIRMWARE_VERSION "4.1.3"
+#define FIRMWARE_VERSION "4.1.4"
 
 // Valeurs utilisees au premier flash / apres reset usine.
 // Elles peuvent ensuite etre modifiees sans reflasher via le portail SETUP
@@ -42,6 +42,12 @@ const int ROAM_MIN_GAIN = 8;                     // dB  : gain minimum avant de 
 const unsigned long ROAM_SCAN_INTERVAL = 10000; // ms  : intervalle entre deux verifications
 const unsigned long ROAM_COOLDOWN = 15000;      // ms  : evite les bascules aller/retour
 const unsigned long ROAM_CONNECT_TIMEOUT = 8000;// ms  : abandon d'une tentative de roaming
+
+// V4.1.4: proactive roaming scans are disabled for stability.
+// ESP8266 channel scans can interrupt live traffic/heartbeats and, on some APs,
+// can destabilize the station link. The tally keeps its current AP while it is
+// connected and reconnects by SSID only after a real Wi-Fi loss.
+const bool PROACTIVE_ROAMING_ENABLED = false;
 
 // Reconnexion apres une vraie perte Wi-Fi.
 // Bleu fixe = recherche du SSID.
@@ -977,6 +983,8 @@ void processRoamScan(unsigned long now) {
 }
 
 void handleRoaming(unsigned long now) {
+  if (!PROACTIVE_ROAMING_ENABLED) return;
+
   if (roamScanRunning) {
     processRoamScan(now);
     return;
@@ -1208,6 +1216,9 @@ void setup() {
   Serial.println(); Serial.println("TRICASTER ELITE 2 WIFI TALLY");
   Serial.println(String(config.name) + " - " + WiFi.localIP().toString());
   Serial.println("TriCaster - " + tricasterIP().toString());
+  if (!PROACTIVE_ROAMING_ENABLED) {
+    Serial.println("[WIFI] Roaming proactif desactive (mode stabilite V4.1.4)");
+  }
 }
 
 void loop() {
