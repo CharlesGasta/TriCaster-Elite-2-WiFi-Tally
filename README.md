@@ -953,6 +953,10 @@ Replace `CHANGE_ME` with the **same token configured on the ESP units** before u
 
 > Administration uses HTTP on the local LAN. Keep the tally network private / isolated and do not expose these endpoints directly to the Internet.
 
+### V4.2 validation status
+
+V4.2 is the current clean firmware baseline. Before promoting it as the final production release, validate the complete six-unit fleet using [TEST_PLAN_V4_2.md](TEST_PLAN_V4_2.md).
+
 ### Firmware V4.2 clean baseline
 
 V4.2 is the cleaned production baseline after hardware testing isolated a defective ESP8266 module. The temporary test-specific TALLY-04 source has been removed from the repository.
