@@ -100,9 +100,13 @@ jobs:
           mkdir -p /tmp/TriCasterTally
           cp TriCaster_Elite2_Tally_ESP8266.ino /tmp/TriCasterTally/TriCasterTally.ino
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir "$GITHUB_WORKSPACE/build" /tmp/TriCasterTally
-      - name: Upload firmware binary
+          cp TriCaster_Elite2_Tally_ESP8266.ino "$GITHUB_WORKSPACE/build/TriCaster_Elite2_Tally_ESP8266.ino"
+          cp "$GITHUB_WORKSPACE/build/TriCasterTally.ino.bin" "$GITHUB_WORKSPACE/build/TriCaster_Elite2_Tally_ESP8266.bin"
+      - name: Upload firmware source + binary
         uses: actions/upload-artifact@v4
         with:
-          name: TriCaster_Elite2_Tally_ESP8266_V4_1
-          path: build/TriCasterTally.ino.bin
+          name: TriCaster_Elite2_Tally_ESP8266_Source_and_BIN
+          path: |
+            build/TriCaster_Elite2_Tally_ESP8266.ino
+            build/TriCaster_Elite2_Tally_ESP8266.bin
           if-no-files-found: error
